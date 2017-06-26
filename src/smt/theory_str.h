@@ -575,8 +575,11 @@ protected:
     void get_const_str_asts_in_node(expr * node, expr_ref_vector & constList);
     expr * eval_concat(expr * n1, expr * n2);
 
+    // string-integer conversion
     bool finalcheck_str2int(app * a);
     bool finalcheck_int2str(app * a);
+
+    void handle_equality_itos(expr * itos, expr * eqTerm);
 
     // strRegex
 

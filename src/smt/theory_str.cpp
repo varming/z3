@@ -7075,6 +7075,25 @@ namespace smt {
             }
         }
 
+        {
+            // iterate over the EQC of lhs and rhs, looking for int.to.str terms
+            expr * eqc_lhs = lhs;
+            do {
+                if (u.str.is_itos(eqc_lhs)) {
+                    handle_equality_itos(eqc_lhs, rhs);
+                }
+                eqc_lhs = get_eqc_next(eqc_lhs);
+            } while (eqc_lhs != lhs);
+
+            expr * eqc_rhs = rhs;
+            do {
+                if (u.str.is_itos(rhs)) {
+                    handle_equality_itos(rhs, lhs);
+                }
+                eqc_rhs = get_eqc_next(eqc_rhs);
+            } while (eqc_rhs != rhs);
+        }
+
         // BEGIN new_eq_handler() in strTheory
 
         {
@@ -8468,6 +8487,60 @@ namespace smt {
         }
 
         return 0;
+    }
+
+    // Handle equality (app :: int.to.str I) == eqTerm
+    void theory_str::handle_equality_itos(expr * itos, expr * eqTerm) {
+        context & ctx = get_context();
+        ast_manager & m = get_manager();
+
+        TRACE("str", tout << "handle equality int-to-str: " << mk_pp(itos, m) << " = " << mk_pp(eqTerm, m) << std::endl;);
+
+        expr * I;
+        u.str.is_itos(itos, I);
+
+        // if we have an eqc value for eqTerm, we can infer (facts about) the value of I.
+        // the only legal values of eqTerm are "" (meaning conversion from a negative I)
+        // or a sequence of digits (which gives the value of I)
+
+        bool eqTerm_hasEqcValue;
+        expr * eqTerm_value = get_eqc_value(eqTerm, eqTerm_hasEqcValue);
+        if (eqTerm_hasEqcValue) {
+            TRACE("str", tout << "eqTerm ~= " << mk_pp(eqTerm_value, m) << std::endl;);
+            zstring eqString;
+            u.str.is_string(eqTerm_value, eqString);
+            if (eqString == zstring("", zstring::encoding::ascii)) {
+                // TODO we already have the axiom for this, do we need to re-assert?
+            } else {
+                // check that eqString only contains digits, and start building the numeric representation of eqTerm
+                rational converted(0);
+                rational ten(10);
+                bool digitsOnly = true;
+                for (unsigned i = 0; i < eqString.length(); ++i) {
+                    char digit = (int)eqString[i];
+                    if (isdigit((int)digit))  {
+                        std::string sDigit(1, digit);
+                        int val = atoi(sDigit.c_str());
+                        converted = (ten * converted) + rational(val);
+                    } else {
+                        digitsOnly = false;
+                        break;
+                    }
+                }
+                expr_ref lhs1(ctx.mk_eq_atom(itos, eqTerm), m);
+                expr_ref lhs2(ctx.mk_eq_atom(eqTerm, u.str.mk_string(eqString)), m);
+                if (digitsOnly) {
+                    // (itos == eqTerm AND eqTerm == eqString) ==> (I == converted)
+                    expr_ref rhs(ctx.mk_eq_atom(I, m_autil.mk_numeral(converted, true)), m);
+                    assert_implication(m.mk_and(lhs1, lhs2), rhs);
+                } else {
+                    // NOT(itos == eqTerm AND eqTerm == eqString)
+                    expr_ref axiom(m.mk_not(m.mk_and(lhs1, lhs2)), m);
+                    assert_axiom(axiom);
+                }
+            }
+        }
+        // TODO NEXT
     }
 
     // Check agreement between integer and string theories for the term a = (str.to-int S).
