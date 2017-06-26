@@ -7094,6 +7094,40 @@ namespace smt {
             } while (eqc_rhs != rhs);
         }
 
+        {
+            // iterate over the parents of the EQC of lhs and rhs, looking for int.to.str terms
+            expr * eqc_lhs = lhs;
+            do {
+                enode * eqc_lhs_enode = ctx.get_enode(eqc_lhs);
+                enode_vector stoi_parents;
+                for(enode_vector::const_iterator it = eqc_lhs_enode->begin_parents(); it != eqc_lhs_enode->end_parents(); ++it) {
+                    if (u.str.is_stoi((*it)->get_owner())) {
+                        stoi_parents.insert(*it);
+                    }
+                }
+                for (enode_vector::const_iterator it = stoi_parents.begin(); it != stoi_parents.end(); ++it) {
+                    app * stoi_parent = (*it)->get_owner();
+                    handle_equality_stoi(stoi_parent, rhs);
+                }
+                eqc_lhs = get_eqc_next(eqc_lhs);
+            } while (eqc_lhs != lhs);
+            expr * eqc_rhs = rhs;
+            do {
+                enode * eqc_rhs_enode = ctx.get_enode(eqc_rhs);
+                enode_vector stoi_parents;
+                for(enode_vector::const_iterator it = eqc_rhs_enode->begin_parents(); it != eqc_rhs_enode->end_parents(); ++it) {
+                    if (u.str.is_stoi((*it)->get_owner())) {
+                        stoi_parents.insert(*it);
+                    }
+                }
+                for (enode_vector::const_iterator it = stoi_parents.begin(); it != stoi_parents.end(); ++it) {
+                    app * stoi_parent = (*it)->get_owner();
+                    handle_equality_stoi(stoi_parent, lhs);
+                }
+                eqc_rhs = get_eqc_next(eqc_rhs);
+            } while (eqc_rhs != rhs);
+        }
+
         // BEGIN new_eq_handler() in strTheory
 
         {
@@ -8489,7 +8523,68 @@ namespace smt {
         return 0;
     }
 
-    // Handle equality (app :: int.to.str I) == eqTerm
+    // Handle equality (stoi :: str.to.int (S ~= strTerm)) == I
+    void theory_str::handle_equality_stoi(expr * stoi, expr * strTerm) {
+        context & ctx = get_context();
+        ast_manager & m = get_manager();
+
+        TRACE("str", tout << "handle equality str-to-int: " << mk_pp(stoi, m) << " with str term " << mk_pp(strTerm, m) << std::endl;);
+
+        expr * S;
+        u.str.is_stoi(stoi, S);
+
+        // if we have an eqc value for strTerm, we can infer (facts about) the value of I.
+        // recall str.to.int axioms:
+        // I >= -1 (we have this axiom)
+        // I == 0 iff S == "0" (we have this axiom)
+        // I >= 1 ==> S is a valid string of digits and doesn't start with '0'
+
+        bool strTerm_hasEqcValue;
+        expr * strTerm_value = get_eqc_value(strTerm, strTerm_hasEqcValue);
+        if (strTerm_hasEqcValue) {
+            TRACE("str", tout << "strTerm ~= " << mk_pp(strTerm_value, m) << std::endl;);
+            zstring eqString;
+            u.str.is_string(strTerm_value, eqString);
+
+            expr_ref lhs1(ctx.mk_eq_atom(S, strTerm), m);
+            expr_ref lhs2(ctx.mk_eq_atom(strTerm, u.str.mk_string(eqString)), m);
+
+            if (eqString.length() > 1) {
+                // check if the first character is '0'; if so, this string counts as invalid
+                char d0 = (int)eqString[0];
+                if (d0 == '0') {
+                    expr_ref rhs(ctx.mk_eq_atom(stoi, m_autil.mk_numeral(rational::minus_one(), true)), m);
+                    assert_implication(m.mk_and(lhs1, lhs2), rhs);
+                    return; // skip further processing that might accidentally see a valid string.
+                }
+            }
+
+            rational converted(0);
+            rational ten(10);
+            bool digitsOnly = true;
+            for (unsigned i = 0; i < eqString.length(); ++i) {
+                char digit = (int)eqString[i];
+                if (isdigit((int)digit))  {
+                    std::string sDigit(1, digit);
+                    int val = atoi(sDigit.c_str());
+                    converted = (ten * converted) + rational(val);
+                } else {
+                    digitsOnly = false;
+                    break;
+                }
+            }
+
+            if (digitsOnly) {
+                expr_ref rhs(ctx.mk_eq_atom(stoi, m_autil.mk_numeral(converted, true)), m);
+                assert_implication(m.mk_and(lhs1, lhs2), rhs);
+            } else {
+                expr_ref rhs(ctx.mk_eq_atom(stoi, m_autil.mk_numeral(rational::minus_one(), true)), m);
+                assert_implication(m.mk_and(lhs1, lhs2), rhs);
+            }
+        }
+    }
+
+    // Handle equality (itos :: int.to.str I) == eqTerm
     void theory_str::handle_equality_itos(expr * itos, expr * eqTerm) {
         context & ctx = get_context();
         ast_manager & m = get_manager();

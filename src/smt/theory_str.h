@@ -579,6 +579,7 @@ protected:
     bool finalcheck_str2int(app * a);
     bool finalcheck_int2str(app * a);
 
+    void handle_equality_stoi(expr * stoi, expr * strTerm);
     void handle_equality_itos(expr * itos, expr * eqTerm);
 
     // strRegex
