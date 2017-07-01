@@ -582,6 +582,8 @@ protected:
     void handle_equality_stoi(expr * stoi, expr * strTerm);
     void handle_equality_itos(expr * itos, expr * eqTerm);
 
+    expr_ref mk_is_single_digit(expr * str);
+
     // strRegex
 
     void get_eqc_allUnroll(expr * n, expr * &constStr, std::set<expr*> & unrollFuncSet);

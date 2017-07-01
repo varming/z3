@@ -1569,12 +1569,12 @@ namespace smt {
 
         app * ex = e->get_owner();
         if (axiomatized_terms.contains(ex)) {
-            TRACE("str", tout << "already set up str.to-int axiom for " << mk_pp(ex, m) << std::endl;);
+            TRACE("str", tout << "already set up str.to.int axiom for " << mk_pp(ex, m) << std::endl;);
             return;
         }
         axiomatized_terms.insert(ex);
 
-        TRACE("str", tout << "instantiate str.to-int axiom for " << mk_pp(ex, m) << std::endl;);
+        TRACE("str", tout << "instantiate str.to.int axiom for " << mk_pp(ex, m) << std::endl;);
 
         // let expr = (str.to-int S)
         // axiom 1: expr >= -1
@@ -1603,6 +1603,7 @@ namespace smt {
             expr_ref conclusion1(ctx.mk_eq_atom(S, mk_concat(hd, tl)), m);
             expr_ref conclusion2(ctx.mk_eq_atom(mk_strlen(hd), m_autil.mk_numeral(rational::one(), true)), m);
             expr_ref conclusion3(m.mk_not(ctx.mk_eq_atom(hd, mk_string("0"))), m);
+            // TODO we can constrain hd further with mk_is_single_digit()
             expr_ref conclusion(m.mk_and(conclusion1, conclusion2, conclusion3), m);
             SASSERT(premise);
             SASSERT(conclusion);
@@ -1616,14 +1617,14 @@ namespace smt {
 
         app * ex = e->get_owner();
         if (axiomatized_terms.contains(ex)) {
-            TRACE("str", tout << "already set up str.from-int axiom for " << mk_pp(ex, m) << std::endl;);
+            TRACE("str", tout << "already set up int.to.str axiom for " << mk_pp(ex, m) << std::endl;);
             return;
         }
         axiomatized_terms.insert(ex);
 
-        TRACE("str", tout << "instantiate str.from-int axiom for " << mk_pp(ex, m) << std::endl;);
+        TRACE("str", tout << "instantiate int.to.str axiom for " << mk_pp(ex, m) << std::endl;);
 
-        // axiom 1: N < 0 <==> (str.from-int N) = ""
+        // axiom 1: N < 0 <==> (int.to.str N) = ""
         expr * N = ex->get_arg(0);
         {
             expr_ref axiom1_lhs(m.mk_not(m_autil.mk_ge(N, m_autil.mk_numeral(rational::zero(), true))), m);
@@ -1632,6 +1633,56 @@ namespace smt {
             SASSERT(axiom1);
             assert_axiom(axiom1);
         }
+
+        // axiom 2: N = 0 <==> (int.to.str N) = "0"
+        {
+            expr_ref axiom2_lhs(ctx.mk_eq_atom(N, m_autil.mk_numeral(rational::zero(), true)), m);
+            expr_ref axiom2_rhs(ctx.mk_eq_atom(ex, mk_string("0")), m);
+            expr_ref axiom2(ctx.mk_eq_atom(axiom2_lhs, axiom2_rhs), m);
+            SASSERT(axiom2);
+            assert_axiom(axiom2);
+        }
+
+        // axiom 3: N >= 1 <==> (int.to.str N) has positive length, starts with a non-zero digit, and ends with a digit
+        // (this is relatively weak but it might help)
+        {
+            expr_ref axiom3_lhs(m_autil.mk_ge(N, m_autil.mk_numeral(rational::one(), true)), m);
+            expr_ref_vector axiom3_rhs(m);
+            axiom3_rhs.push_back(m_autil.mk_ge(mk_strlen(ex), m_autil.mk_numeral(rational::one(), true)));
+
+            expr_ref hd(mk_str_var("hd"), m);
+            expr_ref tl(mk_str_var("tl"), m);
+            axiom3_rhs.push_back(ctx.mk_eq_atom(ex, mk_concat(hd, tl)));
+            axiom3_rhs.push_back(mk_is_single_digit(hd));
+            axiom3_rhs.push_back(m.mk_not(ctx.mk_eq_atom(hd, mk_string("0"))));
+            /*
+            expr_ref front(mk_str_var("front"), m);
+            expr_ref back(mk_str_var("back"), m);
+            axiom3_rhs.push_back(ctx.mk_eq_atom(ex, mk_concat(front, back)));
+            axiom3_rhs.push_back(mk_is_single_digit(back));
+            */
+
+            expr_ref axiom3(ctx.mk_eq_atom(axiom3_lhs, mk_and(axiom3_rhs)), m);
+            SASSERT(axiom3);
+            assert_axiom(axiom3);
+        }
+    }
+
+    expr_ref theory_str::mk_is_single_digit(expr * str) {
+        context & ctx = get_context();
+        ast_manager & m = get_manager();
+
+        const char * digits[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
+
+        expr_ref_vector options(m);
+
+        for (unsigned i = 0; i <= 9; ++i) {
+            const char * nextDigit = digits[i];
+            options.push_back(ctx.mk_eq_atom(str, mk_string(nextDigit)));
+        }
+
+        expr_ref final_axiom(mk_or(options), m);
+        return final_axiom;
     }
 
     expr * theory_str::mk_RegexIn(expr * str, expr * regexp) {
