@@ -1645,6 +1645,7 @@ namespace smt {
 
         // axiom 3: N >= 1 <==> (int.to.str N) has positive length, starts with a non-zero digit, and ends with a digit
         // (this is relatively weak but it might help)
+        /*
         {
             expr_ref axiom3_lhs(m_autil.mk_ge(N, m_autil.mk_numeral(rational::one(), true)), m);
             expr_ref_vector axiom3_rhs(m);
@@ -1655,17 +1656,18 @@ namespace smt {
             axiom3_rhs.push_back(ctx.mk_eq_atom(ex, mk_concat(hd, tl)));
             axiom3_rhs.push_back(mk_is_single_digit(hd));
             axiom3_rhs.push_back(m.mk_not(ctx.mk_eq_atom(hd, mk_string("0"))));
-            /*
+
             expr_ref front(mk_str_var("front"), m);
             expr_ref back(mk_str_var("back"), m);
             axiom3_rhs.push_back(ctx.mk_eq_atom(ex, mk_concat(front, back)));
             axiom3_rhs.push_back(mk_is_single_digit(back));
-            */
+
 
             expr_ref axiom3(ctx.mk_eq_atom(axiom3_lhs, mk_and(axiom3_rhs)), m);
             SASSERT(axiom3);
             assert_axiom(axiom3);
         }
+        */
     }
 
     expr_ref theory_str::mk_is_single_digit(expr * str) {
@@ -7126,7 +7128,10 @@ namespace smt {
             }
         }
 
-        {
+        if (!string_int_conversion_terms.empty()) {
+            // TODO(mtrberzi) these checks probably shouldn't be done for every learned equality;
+            // find a way to determine when they are necessary (some variant of simplify_parent()?)
+
             // iterate over the EQC of lhs and rhs, looking for int.to.str terms
             expr * eqc_lhs = lhs;
             do {
@@ -7143,6 +7148,17 @@ namespace smt {
                 }
                 eqc_rhs = get_eqc_next(eqc_rhs);
             } while (eqc_rhs != rhs);
+
+            // check string-int conversion terms to look for invalid subterms
+            for(expr_ref_vector::iterator it = string_int_conversion_terms.begin();
+                    it != string_int_conversion_terms.end(); ++it) {
+                expr * ex = *it;
+                if (u.str.is_stoi(ex)) {
+                    // TODO
+                } else if (u.str.is_itos(ex)) {
+                    check_itos_subterms(ex, lhs, rhs);
+                }
+            }
         }
 
         {
@@ -8687,6 +8703,138 @@ namespace smt {
             }
         }
         // TODO NEXT
+    }
+
+    // this method only checks whether the given string can appear as a
+    // substring of a valid integer constant, not whether it forms
+    // a valid integer constant by itself.
+    // so, for the purposes of this method:
+    // - the empty string is valid
+    // - a string of all zeroes is valid
+    // - anything with a non-digit character is invalid
+    static bool is_invalid_integer_constant_substring(zstring & str) {
+        if (str.empty()) {
+            return false;
+        }
+
+        for (unsigned int i = 0; i < str.length(); ++i) {
+            char ch = (int)str[i];
+            if (!isdigit((int)ch)) {
+                return true;
+            }
+        }
+
+        // couldn't find a problem
+        return false;
+    }
+
+    // Checks 'term' to see whether it's equivalent to a string constant that
+    // cannot represent a valid integer literal (e.g. contains letters).
+    // taking into account the new eq (eqLHS = eqRHS).
+    // The check is performed recursively if possible (e.g. if 'term' is a concat).
+    // Returns true if such a term is found, populating invTerm with the invalid term
+    // and invStr with the invalid string constant (which satisfies invTerm =~ invStr),
+    // or false otherwise.
+    bool theory_str::find_invalid_integer_constant(expr * term, expr * eqLHS, expr * eqRHS,
+            expr_ref & invTerm, zstring & invStr) {
+        context & ctx = get_context();
+        ast_manager & m = get_manager();
+
+        TRACE("str", tout << "looking for invalid integer constants under " << mk_pp(term, m) << std::endl;);
+
+        bool eqc_value_found = false;
+        if (in_same_eqc(term, eqLHS) || in_same_eqc(term, eqRHS)) {
+            // look for a string constant on both sides
+            expr * lhs_val = get_eqc_value(eqLHS, eqc_value_found);
+            if (eqc_value_found) {
+                invTerm = term;
+                u.str.is_string(lhs_val, invStr);
+                TRACE("str", tout << "found (LHS): " << mk_pp(term, m) << " ~= " << mk_pp(lhs_val, m) << std::endl;);
+                if (is_invalid_integer_constant_substring(invStr)) {
+                    return true;
+                }
+            } else {
+                expr * rhs_val = get_eqc_value(eqRHS, eqc_value_found);
+                if (eqc_value_found) {
+                    invTerm = term;
+                    u.str.is_string(rhs_val, invStr);
+                    TRACE("str", tout << "found (RHS): " << mk_pp(term, m) << " ~= " << mk_pp(rhs_val, m) << std::endl;);
+                    if (is_invalid_integer_constant_substring(invStr)) {
+                        return true;
+                    }
+                }
+            }
+        } else {
+            // only look under 'term' for a string constant
+            expr * val = get_eqc_value(term, eqc_value_found);
+            if (eqc_value_found) {
+                invTerm = term;
+                u.str.is_string(val, invStr);
+                TRACE("str", tout << "found: " << mk_pp(term, m) << " ~= " << mk_pp(val, m) << std::endl;);
+                if (is_invalid_integer_constant_substring(invStr)) {
+                    return true;
+                }
+            }
+        }
+
+        // recursively descend into concats
+        {
+            expr * a0;
+            expr * a1;
+            if (u.str.is_concat(term, a0, a1)) {
+                TRACE("str", tout << "checking subterms of string concat " << mk_pp(term, m) << std::endl;);
+                return find_invalid_integer_constant(a0, eqLHS, eqRHS, invTerm, invStr)
+                        || find_invalid_integer_constant(a1, eqLHS, eqRHS, invTerm, invStr)
+                        ;
+            }
+        }
+        // TODO any others?
+
+        // found nothing
+        return false;
+    }
+
+    // Given itos :: (int.to.str I)
+    // Check string terms in the eqc of itos (taking into account the new eq eqLHS=eqRHS)
+    // to see if any term is equivalent to a string constant that contains a non-digit character.
+    // If such a term is found, let S =~ itos, T be the invalid term, and T_str be a string constant.
+    // We have that T is a substring of S (because it is a subterm of S)
+    // and T ~= T_str. Then assert the axiom
+    // (S ~= itos) ==> !(T ~= T_str)
+    // or, if T is a string constant already,
+    // !(S ~= itos)
+    void theory_str::check_itos_subterms(expr * itos, expr * eqLHS, expr * eqRHS) {
+        context & ctx = get_context();
+        ast_manager & m = get_manager();
+
+        expr_ref invTerm(m);
+        zstring invStr;
+
+        TRACE("str", tout << "check int.to.str subterms for " << mk_pp(itos, m) << std::endl;);
+
+        enode * itos_e = ctx.get_enode(itos);
+        enode * curr_e = itos_e;
+        do {
+            expr * curr = curr_e->get_owner();
+            if (find_invalid_integer_constant(curr, eqLHS, eqRHS, invTerm, invStr)) {
+                TRACE("str", tout << "found invalid integer constant " << mk_pp(invTerm, m) << " ~= " << invStr
+                        << " as subterm of " << mk_pp(curr, m) << std::endl;);
+                if (u.str.is_string(invTerm)) {
+                    // assert !(curr ~= itos)
+                    expr_ref axiom(m.mk_not(ctx.mk_eq_atom(curr, itos)), m);
+                    SASSERT(axiom);
+                    assert_axiom(axiom);
+                } else {
+                    // assert (curr ~= itos) ==> !(invTerm ~= invStr)
+                    expr_ref axiom_lhs(ctx.mk_eq_atom(curr, itos), m);
+                    expr_ref axiom_rhs(m.mk_not(ctx.mk_eq_atom(invTerm, u.str.mk_string(invStr))), m);
+                    SASSERT(axiom_lhs);
+                    SASSERT(axiom_rhs);
+                    assert_implication(axiom_lhs, axiom_rhs);
+                }
+            }
+            curr_e = curr_e->get_next();
+        } while (curr_e != itos_e);
     }
 
     // Check agreement between integer and string theories for the term a = (str.to-int S).
