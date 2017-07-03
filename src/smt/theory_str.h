@@ -582,6 +582,7 @@ protected:
     void handle_equality_stoi(expr * stoi, expr * strTerm);
     void handle_equality_itos(expr * itos, expr * eqTerm);
     bool find_invalid_integer_constant(expr * term, expr * eqLHS, expr * eqRHS, expr_ref & invTerm, zstring & invStr);
+    void check_stoi_subterms(expr * stoi, expr * eqLHS, expr * eqRHS);
     void check_itos_subterms(expr * itos, expr * eqLHS, expr * eqRHS);
 
     expr_ref mk_is_single_digit(expr * str);

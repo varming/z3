@@ -7154,7 +7154,7 @@ namespace smt {
                     it != string_int_conversion_terms.end(); ++it) {
                 expr * ex = *it;
                 if (u.str.is_stoi(ex)) {
-                    // TODO
+                    check_stoi_subterms(ex, lhs, rhs);
                 } else if (u.str.is_itos(ex)) {
                     check_itos_subterms(ex, lhs, rhs);
                 }
@@ -8792,6 +8792,49 @@ namespace smt {
 
         // found nothing
         return false;
+    }
+
+    // Given stoi :: (str.to.int S)
+    // Check string terms in the eqc of S (taking into account the new eq eqLHS=eqRHS)
+    // to see if any term is equivalent to a string constant that contains a non-digit character.
+    // If such a term is found, let Seqc ~= S, T be the invalid term, and T_str be a string constant.
+    // We have that T is a substring of Seqc (because it is a subterm of Seqc),
+    // and T ~= T_str. Then assert the axiom
+    // (S ~= Seqc AND T ~= T_str) ==> stoi = -1
+    // or, if T is a string constant already,
+    // (S ~= Seqc) ==> stoi = -1
+    void theory_str::check_stoi_subterms(expr * stoi, expr *eqLHS, expr * eqRHS) {
+        context & ctx = get_context();
+        ast_manager & m = get_manager();
+
+        expr_ref invTerm(m);
+        zstring invStr;
+
+        TRACE("str", tout << "check str.to.int subterms for " << mk_pp(stoi, m) << std::endl;);
+
+        expr * S = to_app(stoi)->get_arg(0);
+        enode * S_e = ctx.get_enode(S);
+        enode * Seqc_e = S_e;
+        do {
+            expr * Seqc = Seqc_e->get_owner();
+            if (find_invalid_integer_constant(Seqc, eqLHS, eqRHS, invTerm, invStr)) {
+                TRACE("str", tout << "found invalid integer constant " << mk_pp(invTerm, m) << " ~= " << invStr
+                        << " as subterm of " << mk_pp(Seqc, m) << std::endl;);
+                expr_ref axiom_lhs1(ctx.mk_eq_atom(S, Seqc), m);
+                SASSERT(axiom_lhs1);
+                expr_ref axiom_rhs(ctx.mk_eq_atom(stoi, m_autil.mk_numeral(rational::minus_one(), true)), m);
+                SASSERT(axiom_rhs);
+                if (u.str.is_string(invTerm)) {
+                    assert_implication(axiom_lhs1, axiom_rhs);
+                } else {
+                    expr_ref axiom_lhs2(ctx.mk_eq_atom(invTerm, u.str.mk_string(invStr)), m);
+                    SASSERT(axiom_lhs2);
+                    expr_ref axiom_lhs(m.mk_and(axiom_lhs1, axiom_lhs2), m);
+                    assert_implication(axiom_lhs, axiom_rhs);
+                }
+            }
+            Seqc_e = Seqc_e->get_next();
+        } while (Seqc_e != S_e);
     }
 
     // Given itos :: (int.to.str I)
