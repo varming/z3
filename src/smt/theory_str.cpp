@@ -4620,7 +4620,47 @@ namespace smt {
      */
 
     expr * theory_str::get_eqc_value(expr * n, bool & hasEqcValue) {
-        return z3str2_get_eqc_value(n, hasEqcValue);
+        // return z3str2_get_eqc_value(n, hasEqcValue);
+
+        context & ctx = get_context();
+
+        // first find the representative as maintained by smt_context
+        if (!ctx.e_internalized(n)) {
+            hasEqcValue = false;
+            return n;
+        }
+        enode * e_n = ctx.get_enode(n);
+        enode * eRoot_n = e_n->get_root();
+        TRACE("str", tout << "get eqc value of " << mk_pp(n, get_manager()) << ": context eqc root is "
+                << mk_pp(eRoot_n->get_owner(), get_manager()) << std::endl;);
+        // eRoot_n must be a string constant
+        if (!u.str.is_string(eRoot_n->get_owner())) {
+            hasEqcValue = false;
+            return n;
+        }
+        theory_var v_root = get_var(eRoot_n->get_owner());
+        if (v_root == null_theory_var) {
+            TRACE("str", tout << "context eqc root not in local m_find" << std::endl;);
+            hasEqcValue = false;
+            return n;
+        }
+        // now check our local union-find structure to see if it's consistent
+        // (we lag behind in updating it for Z3str2 compatibility)
+        theory_var v_n = get_var(n);
+        if (v_n == null_theory_var) {
+            hasEqcValue = false;
+            return n;
+        }
+        theory_var R1 = m_find.find(v_root);
+        theory_var R2 = m_find.find(v_n);
+        if (R1 == R2) {
+            hasEqcValue = true;
+            return eRoot_n->get_owner();
+        } else {
+            TRACE("str", tout << "context eqc and local m_find eqc disagree" << std::endl;);
+            hasEqcValue = false;
+            return n;
+        }
     }
 
 
