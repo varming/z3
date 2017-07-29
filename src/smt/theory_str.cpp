@@ -701,6 +701,17 @@ namespace smt {
         ast_manager & m = get_manager();
         ENSURE(n1 != NULL);
         ENSURE(n2 != NULL);
+
+        // safety
+        if (!ctx.e_internalized(n1)) {
+            ctx.internalize(n1, false);
+        }
+        if (!ctx.e_internalized(n2)) {
+            ctx.internalize(n2, false);
+        }
+        mk_var(ctx.get_enode(n1));
+        mk_var(ctx.get_enode(n2));
+
         bool n1HasEqcValue = false;
         bool n2HasEqcValue = false;
         n1 = get_eqc_value(n1, n1HasEqcValue);
@@ -4624,40 +4635,17 @@ namespace smt {
 
         context & ctx = get_context();
 
-        // first find the representative as maintained by smt_context
-        if (!ctx.e_internalized(n)) {
-            hasEqcValue = false;
-            return n;
-        }
-        enode * e_n = ctx.get_enode(n);
-        enode * eRoot_n = e_n->get_root();
-        TRACE("str", tout << "get eqc value of " << mk_pp(n, get_manager()) << ": context eqc root is "
-                << mk_pp(eRoot_n->get_owner(), get_manager()) << std::endl;);
-        // eRoot_n must be a string constant
-        if (!u.str.is_string(eRoot_n->get_owner())) {
-            hasEqcValue = false;
-            return n;
-        }
-        theory_var v_root = get_var(eRoot_n->get_owner());
-        if (v_root == null_theory_var) {
-            TRACE("str", tout << "context eqc root not in local m_find" << std::endl;);
-            hasEqcValue = false;
-            return n;
-        }
-        // now check our local union-find structure to see if it's consistent
-        // (we lag behind in updating it for Z3str2 compatibility)
-        theory_var v_n = get_var(n);
-        if (v_n == null_theory_var) {
-            hasEqcValue = false;
-            return n;
-        }
-        theory_var R1 = m_find.find(v_root);
-        theory_var R2 = m_find.find(v_n);
-        if (R1 == R2) {
+        // This depends on our invariant being maintained in new_eq_eh();
+        theory_var v = get_var(n);
+        theory_var v_root = m_find.find(v);
+        expr * e_root = get_ast(v_root);
+
+        if (u.str.is_string(e_root)) {
+            TRACE("str", tout << "root of eqc of " << mk_pp(n, get_manager()) << " is string constant " << mk_pp(e_root, get_manager()) << std::endl;);
             hasEqcValue = true;
-            return eRoot_n->get_owner();
+            return e_root;
         } else {
-            TRACE("str", tout << "context eqc and local m_find eqc disagree" << std::endl;);
+            TRACE("str", tout << "root of eqc of " << mk_pp(n, get_manager()) << " is not a string constant" << std::endl;);
             hasEqcValue = false;
             return n;
         }
@@ -7455,7 +7443,37 @@ namespace smt {
         handle_equality(get_enode(x)->get_owner(), get_enode(y)->get_owner());
 
         // replicate Z3str2 behaviour: merge eqc **AFTER** handle_equality
-        m_find.merge(x, y);
+
+        // maintain the following invariant:
+        // if there is a string constant in the eqc of either theory var,
+        // it is always the root.
+        // therefore, we check both sides to see whether they're string constants,
+        // and make sure that wherever we find a string constant is the *second* argument
+        // to m_find.merge().
+
+        theory_var Rx = m_find.find(x);
+        theory_var Ry = m_find.find(y);
+
+        if (u.str.is_string(get_ast(Rx))) {
+            m_find.merge(y, x, true);
+        } else if (u.str.is_string(get_ast(Ry))) {
+            m_find.merge(x, y, true);
+        } else {
+            // no string on either side
+            m_find.merge(x, y);
+        }
+
+#ifdef Z3DEBUG
+        // check invariant
+        theory_var r = m_find.find(x);
+        if (!u.str.is_string(get_ast(r))) {
+            theory_var curr = r;
+            do {
+                SASSERT(!u.str.is_string(get_ast(curr)));
+                curr = m_find.next(curr);
+            } while (curr != r);
+        }
+#endif // Z3DEBUG
     }
 
     void theory_str::new_diseq_eh(theory_var x, theory_var y) {

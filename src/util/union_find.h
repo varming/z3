@@ -115,13 +115,13 @@ public:
 
     bool is_root(unsigned v) const { return m_find[v] == v; }
 
-    void merge(unsigned v1, unsigned v2) {
+    void merge(unsigned v1, unsigned v2, bool force_order = false) {
         unsigned r1 = find(v1);
         unsigned r2 = find(v2);
         TRACE("union_find", tout << "merging " << r1 << " " << r2 << "\n";);
         if (r1 == r2)
             return;
-        if (m_size[r1] > m_size[r2])
+        if (m_size[r1] > m_size[r2] && !force_order)
             std::swap(r1, r2);
         m_ctx.merge_eh(r2, r1, v2, v1);
         m_find[r1] = r2;
