@@ -30,6 +30,7 @@
 #include<map>
 #include"seq_decl_plugin.h"
 #include"union_find.h"
+#include"seq_rewriter.h"
 
 namespace smt {
 
@@ -264,6 +265,8 @@ protected:
     expr_ref_vector m_trail; // trail for generated terms
 
     str_value_factory * m_factory;
+
+    re2automaton m_mk_aut;
 
     // terms we couldn't go through set_up_axioms() with because they weren't internalized
     expr_ref_vector m_delayed_axiom_setup_terms;
@@ -629,6 +632,7 @@ protected:
     virtual void new_eq_eh(theory_var, theory_var);
     virtual void new_diseq_eh(theory_var, theory_var);
 
+    virtual void init(context * ctx);
     virtual theory* mk_fresh(context*) { return alloc(theory_str, get_manager(), m_params); }
     virtual void init_search_eh();
     virtual void add_theory_assumptions(expr_ref_vector & assumptions);

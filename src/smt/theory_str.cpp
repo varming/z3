@@ -25,6 +25,8 @@
 #include"theory_seq_empty.h"
 #include"theory_arith.h"
 #include"ast_util.h"
+#include"seq_rewriter.h"
+#include"smt_kernel.h"
 
 namespace smt {
 
@@ -47,6 +49,7 @@ namespace smt {
         sLevel(0),
         finalCheckProgressIndicator(false),
         m_trail(m),
+        m_mk_aut(m),
         m_delayed_axiom_setup_terms(m),
         tmpStringVarCount(0),
         tmpXorVarCount(0),
@@ -91,6 +94,27 @@ namespace smt {
     expr * theory_str::mk_string(const char * str) {
         symbol sym(str);
         return u.str.mk_string(sym);
+    }
+
+    class seq_expr_solver : public expr_solver {
+        kernel m_kernel;
+    public:
+        seq_expr_solver(ast_manager& m, smt_params& fp):
+            m_kernel(m, fp)
+        {}
+
+        virtual lbool check_sat(expr* e) {
+            m_kernel.push();
+            m_kernel.assert_expr(e);
+            lbool r = m_kernel.check();
+            m_kernel.pop(1);
+            return r;
+        }
+    };
+
+    void theory_str::init(context * ctx) {
+        theory::init(ctx);
+        m_mk_aut.set_solver(alloc(seq_expr_solver, get_manager(), get_context().get_fparams()));
     }
 
     void theory_str::initialize_charset() {
@@ -7450,7 +7474,27 @@ namespace smt {
     }
 
     void theory_str::assign_eh(bool_var v, bool is_true) {
-        TRACE("str", tout << "assert: v" << v << " #" << get_context().bool_var2expr(v)->get_id() << " is_true: " << is_true << std::endl;);
+        context & ctx = get_context();
+        ast_manager & m = get_manager();
+
+        // base boolean expr that was assigned -- this is always a string term,
+        // e.g. (str.in.re S R).
+        expr * ex = ctx.bool_var2expr(v);
+
+        TRACE("str", tout << "assert: v" << v << " " << mk_pp(ex, m) << " is_true: " << is_true << std::endl;);
+
+        expr * str;
+        expr * regex;
+        if (u.str.is_in_re(ex, str, regex)) {
+            // attempt to build an automaton for the regex
+            scoped_ptr<eautomaton> aut;
+            if (is_true) {
+                aut = m_mk_aut(regex);
+            } else {
+                expr_ref rc(u.re.mk_complement(regex), m);
+                aut = m_mk_aut(rc);
+            }
+        }
     }
 
     void theory_str::push_scope_eh() {
