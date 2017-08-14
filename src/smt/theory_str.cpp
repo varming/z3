@@ -27,6 +27,7 @@
 #include"ast_util.h"
 #include"seq_rewriter.h"
 #include"smt_kernel.h"
+#include"scoped_ptr_vector.h"
 
 namespace smt {
 
@@ -7473,28 +7474,81 @@ namespace smt {
         TRACE("str", tout << "relevant: " << mk_ismt2_pp(n, get_manager()) << std::endl;);
     }
 
+    struct display_expr1 {
+        ast_manager& m;
+        display_expr1(ast_manager& m): m(m) {}
+        std::ostream& display(std::ostream& out, sym_expr* e) const {
+            return e->display(out);
+        }
+    };
+
     void theory_str::assign_eh(bool_var v, bool is_true) {
         context & ctx = get_context();
         ast_manager & m = get_manager();
 
-        // base boolean expr that was assigned -- this is always a string term,
-        // e.g. (str.in.re S R).
-        expr * ex = ctx.bool_var2expr(v);
+        if (m_params.m_RegexAutomata) {
+            // base boolean expr that was assigned -- this is always a string term,
+            // e.g. (str.in.re S R).
+            expr * ex = ctx.bool_var2expr(v);
 
-        TRACE("str", tout << "assert: v" << v << " " << mk_pp(ex, m) << " is_true: " << is_true << std::endl;);
+            TRACE("str", tout << "assign: " << mk_pp(ex, m) << " = " << (is_true?"true":"false") << std::endl;);
 
-        expr * str;
-        expr * regex;
-        if (u.str.is_in_re(ex, str, regex)) {
-            // attempt to build an automaton for the regex
-            scoped_ptr<eautomaton> aut;
-            if (is_true) {
-                aut = m_mk_aut(regex);
-            } else {
-                expr_ref rc(u.re.mk_complement(regex), m);
-                aut = m_mk_aut(rc);
+            expr * str;
+            expr * regex;
+            if (u.str.is_in_re(ex, str, regex)) {
+                expr_ref_vector regex_membership_terms(m);
+                scoped_ptr_vector<eautomaton> automata;
+                // iterate the parents of str to look for other str.to.re terms
+                enode * str_enode = ctx.get_enode(str);
+                for (enode_vector::iterator it = str_enode->begin_parents(); it != str_enode->end_parents(); ++it) {
+                    enode * e_parent = *it;
+                    SASSERT(e_parent != NULL);
+                    app * a_parent = e_parent->get_owner();
+                    expr * tmp_str;
+                    expr * parent_regex;
+                    if (u.str.is_in_re(a_parent, tmp_str, parent_regex)) {
+                        // check the current assignment of each one
+                        lbool assignment = ctx.get_assignment(a_parent);
+                        if (assignment != l_undef) {
+                            // build the appropriate automaton for each one
+                            // TODO: automaton caching
+                            if (assignment == l_true) {
+                                regex_membership_terms.push_back(a_parent);
+                                eautomaton * aut = m_mk_aut(parent_regex);
+                                SASSERT(aut);
+                                automata.push_back(aut);
+                            } else if (assignment == l_false) {
+                                regex_membership_terms.push_back(m.mk_not(a_parent));
+                                expr_ref rc(u.re.mk_complement(regex), m);
+                                eautomaton * aut = m_mk_aut(rc);
+                                SASSERT(aut);
+                                automata.push_back(aut);
+                            }
+                        }
+                    }
+                }
+                // intersect all automata and check for emptiness
+                // TODO: potentially cache intermediate results for non-empty intersection automata?
+                if (!automata.empty()) {
+                    eautomaton * aut_inter = automata[0];
+                    for (unsigned i = 1; i < automata.size(); ++i) {
+                        aut_inter = m_mk_aut.mk_product(aut_inter, automata[i]);
+                    }
+                    display_expr1 disp(m);
+                    aut_inter->compress();
+                    TRACE("str", tout << "final product automaton: " << std::endl; aut_inter->display(tout, disp););
+                    // if the resulting automaton is empty, the current set of regex constraints
+                    // over this string is unsatisfiable
+                    // TODO: do we need to perform this check in a more general way?
+                    if (aut_inter->is_empty()) {
+                        TRACE("str", tout << "intersecting regex constraints on " << mk_pp(str, m) << " are UNSAT" << std::endl;);
+                        expr_ref regex_axiom(m.mk_not(mk_and(regex_membership_terms)), m);
+                        SASSERT(regex_axiom);
+                        assert_axiom(regex_axiom);
+                    }
+                }
             }
-        }
+        } // m_params.RegexAutomata
     }
 
     void theory_str::push_scope_eh() {

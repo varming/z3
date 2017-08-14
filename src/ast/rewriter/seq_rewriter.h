@@ -87,6 +87,7 @@ public:
     ~re2automaton();
     eautomaton* operator()(expr* e);
     void set_solver(expr_solver* solver);
+    eautomaton* mk_product(eautomaton *a1, eautomaton *a2);
 };
 
 /**
