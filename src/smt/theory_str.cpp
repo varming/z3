@@ -7497,7 +7497,7 @@ namespace smt {
             expr * regex;
             if (u.str.is_in_re(ex, str, regex)) {
                 expr_ref_vector regex_membership_terms(m);
-                scoped_ptr_vector<eautomaton> automata;
+                ptr_vector<eautomaton> automata;
                 // iterate the parents of str to look for other str.to.re terms
                 enode * str_enode = ctx.get_enode(str);
                 for (enode_vector::iterator it = str_enode->begin_parents(); it != str_enode->end_parents(); ++it) {
@@ -7511,16 +7511,25 @@ namespace smt {
                         lbool assignment = ctx.get_assignment(a_parent);
                         if (assignment != l_undef) {
                             // build the appropriate automaton for each one
-                            // TODO: automaton caching
                             if (assignment == l_true) {
                                 regex_membership_terms.push_back(a_parent);
-                                eautomaton * aut = m_mk_aut(parent_regex);
+                                eautomaton * aut = NULL;
+                                if (!regex_automaton_cache.find(parent_regex, aut)) {
+                                    TRACE("str", tout << "build automaton for " << mk_pp(parent_regex, m) << " (cache miss)" << std::endl;);
+                                    aut = m_mk_aut(parent_regex);
+                                    regex_automaton_cache.insert(parent_regex, aut);
+                                }
                                 SASSERT(aut);
                                 automata.push_back(aut);
                             } else if (assignment == l_false) {
                                 regex_membership_terms.push_back(m.mk_not(a_parent));
-                                expr_ref rc(u.re.mk_complement(regex), m);
-                                eautomaton * aut = m_mk_aut(rc);
+                                expr_ref rc(u.re.mk_complement(parent_regex), m);
+                                eautomaton * aut = NULL;
+                                if (!regex_automaton_cache.find(rc, aut)) {
+                                    TRACE("str", tout << "build automaton for " << mk_pp(rc, m) << " (cache miss)" << std::endl;);
+                                    aut = m_mk_aut(rc);
+                                    regex_automaton_cache.insert(rc, aut);
+                                }
                                 SASSERT(aut);
                                 automata.push_back(aut);
                             }
@@ -7530,11 +7539,15 @@ namespace smt {
                 // intersect all automata and check for emptiness
                 // TODO: potentially cache intermediate results for non-empty intersection automata?
                 if (!automata.empty()) {
+                    display_expr1 disp(m);
                     eautomaton * aut_inter = automata[0];
+                    TRACE("str", tout << "automata[0]:" << std::endl; automata[0]->display(tout, disp););
+                    TRACE("str", tout << "regex[0]: " << mk_pp(regex_membership_terms.get(0), m) << std::endl;);
                     for (unsigned i = 1; i < automata.size(); ++i) {
+                        TRACE("str", tout << "automata[" << i << "]:" << std::endl; automata[i]->display(tout, disp););
+                        TRACE("str", tout << "regex[" << i << "]: " << mk_pp(regex_membership_terms.get(i), m) << std::endl;);
                         aut_inter = m_mk_aut.mk_product(aut_inter, automata[i]);
                     }
-                    display_expr1 disp(m);
                     aut_inter->compress();
                     TRACE("str", tout << "final product automaton: " << std::endl; aut_inter->display(tout, disp););
                     // if the resulting automaton is empty, the current set of regex constraints

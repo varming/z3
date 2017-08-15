@@ -267,6 +267,7 @@ protected:
     str_value_factory * m_factory;
 
     re2automaton m_mk_aut;
+    obj_map<expr, eautomaton*> regex_automaton_cache; // TODO free these terms on teardown
 
     // terms we couldn't go through set_up_axioms() with because they weren't internalized
     expr_ref_vector m_delayed_axiom_setup_terms;
