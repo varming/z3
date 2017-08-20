@@ -53,6 +53,7 @@ public:
     bool is_range() const { return m_ty == t_range; }
     sort* get_sort() const { return m_sort; }
     expr* get_char() const { SASSERT(is_char()); return m_t; }
+    expr* get_pred() const { SASSERT(is_pred()); return m_t; }
 
 };
 

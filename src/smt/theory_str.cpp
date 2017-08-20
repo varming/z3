@@ -28,6 +28,7 @@
 #include"seq_rewriter.h"
 #include"smt_kernel.h"
 #include"scoped_ptr_vector.h"
+#include"ast.h"
 
 namespace smt {
 
@@ -8812,6 +8813,67 @@ namespace smt {
         }
     }
 
+    void theory_str::aut_path_add_next(u_map<expr*>& next, expr_ref_vector& trail, unsigned idx, expr* cond) {
+        expr* acc;
+        if (!get_manager().is_true(cond) && next.find(idx, acc)) {
+            expr* args[2] = { cond, acc };
+            cond = mk_or(get_manager(), 2, args);
+        }
+        trail.push_back(cond);
+        next.insert(idx, cond);
+    }
+
+    expr_ref theory_str::aut_path_rewrite_constraint(expr * cond, expr * ch_var) {
+        context & ctx = get_context();
+        ast_manager & m = get_manager();
+        bv_util bvu(m);
+
+        expr_ref retval(m);
+
+        rational char_val;
+        unsigned int bv_width;
+
+        expr * lhs;
+        expr * rhs;
+
+        if (bvu.is_numeral(cond, char_val, bv_width)) {
+            SASSERT(char_val.is_nonneg() && char_val.get_unsigned() < 256);
+            TRACE("str", tout << "rewrite character constant " << char_val << std::endl;);
+            zstring str_const(char_val.get_unsigned());
+            retval = u.str.mk_string(str_const);
+            return retval;
+        } else if (is_var(cond)) {
+            TRACE("str", tout << "substitute var" << std::endl;);
+            retval = ch_var;
+            return retval;
+        } else if (m.is_eq(cond, lhs, rhs)) {
+            // handle this specially because the sort of the equality will change
+            expr_ref new_lhs(aut_path_rewrite_constraint(lhs, ch_var), m);
+            SASSERT(new_lhs);
+            expr_ref new_rhs(aut_path_rewrite_constraint(rhs, ch_var), m);
+            SASSERT(new_rhs);
+            retval = ctx.mk_eq_atom(new_lhs, new_rhs);
+            return retval;
+        } else if (m.is_bool(cond)) {
+            TRACE("str", tout << "rewrite boolean term " << mk_pp(cond, m) << std::endl;);
+            app * a_cond = to_app(cond);
+            expr_ref_vector rewritten_args(m);
+            for (unsigned i = 0; i < a_cond->get_num_args(); ++i) {
+                expr * argI = a_cond->get_arg(i);
+                expr_ref new_arg(aut_path_rewrite_constraint(argI, ch_var), m);
+                SASSERT(new_arg);
+                rewritten_args.push_back(new_arg);
+            }
+            retval = m.mk_app(a_cond->get_decl(), rewritten_args.c_ptr());
+            TRACE("str", tout << "final rewritten term is " << mk_pp(retval, m) << std::endl;);
+            return retval;
+        } else {
+            TRACE("str", tout << "ERROR: unrecognized automaton path constraint " << mk_pp(cond, m) << ", cannot translate" << std::endl;);
+            retval = NULL;
+            return retval;
+        }
+    }
+
     final_check_status theory_str::final_check_eh() {
         context & ctx = get_context();
         ast_manager & m = get_manager();
@@ -8885,7 +8947,7 @@ namespace smt {
         // and add+continue if it doesn't (combine all regex constraints into one term)
 
         // each entry in regex_in_bool_map is of the form (S, "regex") => (str.in.re S RE)
-        {
+        if (m_params.m_RegexAutomata) {
             // maps a term to all of the regex constraints that include it
             std::map<expr*, std::vector<expr*> > regex_constraints_per_term;
 
@@ -8907,17 +8969,156 @@ namespace smt {
                 for (; rx_it != regex_constraints_per_term.end(); ++rx_it) {
                     expr * stringTerm = rx_it->first;
                     std::vector<expr*> regexConstraints = rx_it->second;
+
+                    // this will hold the lhs of an implication of the form
+                    // (length of stringTerm AND regexConstraints) -> (character path constraints)
+                    expr_ref_vector toplevel_lhs(m);
+
+                    // TODO don't do this check if we already have a path constraint on this string term
+
                     TRACE("str", tout << "string term " << mk_pp(stringTerm, m) << " has " << regexConstraints.size() << " regex constraints" << std::endl;);
                     // in order to use the automata, we need to know the length of 'stringTerm'
                     rational lenVal;
                     if (get_len_value(stringTerm, lenVal)) {
-                        NOT_IMPLEMENTED_YET();
+                        toplevel_lhs.push_back(ctx.mk_eq_atom(mk_strlen(stringTerm), m_autil.mk_numeral(lenVal, true)));
+
+                        bool first = true;
+                        eautomaton * aut_prod;
+                        // intersect all automaton constraints
+                        for (std::vector<expr*>::iterator constraint_it = regexConstraints.begin(); constraint_it != regexConstraints.end(); ++constraint_it) {
+                            expr * strInRe = *constraint_it;
+                            lbool polarity = ctx.get_assignment(strInRe);
+                            expr * str_base;
+                            expr * re_base;
+                            expr_ref re_term(m);
+                            u.str.is_in_re(strInRe, str_base, re_base);
+                            if (polarity == l_undef) {
+                                TRACE("str", tout << "WARNING: str.in.re term " << mk_pp(strInRe, m) << " has no assignment!" << std::endl;);
+                                continue;
+                            } else if (polarity == l_true) {
+                                re_term = re_base;
+                                toplevel_lhs.push_back(strInRe);
+                            } else if (polarity == l_false) {
+                                re_term = u.re.mk_complement(re_base);
+                                toplevel_lhs.push_back(m.mk_not(strInRe));
+                            }
+                            // lookup in cache
+                            eautomaton * aut;
+                            if (!regex_automaton_cache.find(re_term, aut)) {
+                                TRACE("str", tout << "build automaton for " << mk_pp(re_term, m) << std::endl;);
+                                aut = m_mk_aut(re_term);
+                                regex_automaton_cache.insert(re_term, aut);
+                            }
+                            if (first) {
+                                aut_prod = aut;
+                                first = false;
+                            } else {
+                                aut_prod = m_mk_aut.mk_product(aut_prod, aut);
+                            }
+                        } // foreach(regexConstraints)
+                        display_expr1 disp(m);
+                        TRACE("str", tout << "product automaton for " << mk_pp(stringTerm, m) << ":" << std::endl; aut_prod->display(tout, disp););
+
+                        // TODO handle strings of length 0
+
+                        expr_ref_vector pathChars(m);
+                        expr_ref_vector pathChars_len_constraints(m);
+                        for (unsigned i = 0; i < lenVal.get_unsigned(); ++i) {
+                            std::stringstream ss;
+                            ss << "ch" << i;
+                            expr_ref ch(mk_str_var(ss.str()), m);
+                            pathChars.push_back(ch);
+                            pathChars_len_constraints.push_back(ctx.mk_eq_atom(mk_strlen(ch), m_autil.mk_numeral(rational::one(), true)));
+                        }
+
+                        // modification of code in seq_rewriter::mk_str_in_regexp()
+                        expr_ref_vector trail(m);
+                        u_map<expr*> maps[2];
+                        bool select_map = false;
+                        expr_ref ch(m), cond(m);
+                        eautomaton::moves mvs;
+                        maps[0].insert(aut_prod->init(), m.mk_true());
+                        // is_accepted(a, aut) & some state in frontier is final.
+                        for (unsigned i = 0; i < lenVal.get_unsigned(); ++i) {
+                            u_map<expr*>& frontier = maps[select_map];
+                            u_map<expr*>& next = maps[!select_map];
+                            select_map = !select_map;
+                            ch = pathChars.get(i);
+                            next.reset();
+                            u_map<expr*>::iterator it = frontier.begin(), end = frontier.end();
+                            for (; it != end; ++it) {
+                                mvs.reset();
+                                unsigned state = it->m_key;
+                                expr*    acc  = it->m_value;
+                                aut_prod->get_moves_from(state, mvs, false);
+                                for (unsigned j = 0; j < mvs.size(); ++j) {
+                                    eautomaton::move const& mv = mvs[j];
+                                    SASSERT(mv.t());
+                                    if (mv.t()->is_char() && m.is_value(mv.t()->get_char())) {
+                                        // change this to a string constraint
+                                        expr_ref cond_rhs = aut_path_rewrite_constraint(mv.t()->get_char(), ch);
+                                        SASSERT(cond_rhs);
+                                        cond = ctx.mk_eq_atom(ch, cond_rhs);
+                                        SASSERT(cond);
+                                        expr * args[2] = {cond, acc};
+                                        cond = mk_and(m, 2, args);
+                                        aut_path_add_next(next, trail, mv.dst(), acc);
+                                    }
+                                    else if (mv.t()->is_pred()) {
+                                        // rewrite this constraint over string terms
+                                        expr_ref cond_rhs = aut_path_rewrite_constraint(mv.t()->get_pred(), ch);
+                                        SASSERT(cond_rhs);
+
+                                        if (m.is_false(cond)) {
+                                            continue;
+                                        } else if (m.is_true(cond)) {
+                                            aut_path_add_next(next, trail, mv.dst(), acc);
+                                            continue;
+                                        }
+                                        expr * args[2] = {cond, acc};
+                                        cond = mk_and(m, 2, args);
+                                        aut_path_add_next(next, trail, mv.dst(), cond);
+                                    } else {
+                                        TRACE("str", tout << "warning: unhandled path constraint" << std::endl;);
+                                        NOT_IMPLEMENTED_YET();
+                                    }
+                                }
+                            }
+                        }
+                        u_map<expr*> const& frontier = maps[select_map];
+                        u_map<expr*>::iterator it = frontier.begin(), end = frontier.end();
+                        expr_ref_vector ors(m);
+                        for (; it != end; ++it) {
+                            unsigned_vector states;
+                            bool has_final = false;
+                            aut_prod->get_epsilon_closure(it->m_key, states);
+                            for (unsigned i = 0; i < states.size() && !has_final; ++i) {
+                                has_final = aut_prod->is_final_state(states[i]);
+                            }
+                            if (has_final) {
+                                ors.push_back(it->m_value);
+                            }
+                        }
+                        expr_ref result(mk_or(ors));
+                        TRACE("str", tout << "regex path constraint: " << mk_pp(result, m) << "\n";);
+
+                        // if the path constraint is instantly false, then we know that the LHS must be false,
+                        // so negate it and instantly assert a conflict clause
+                        if (m.is_false(result)) {
+                            expr_ref conflict(m.mk_not(mk_and(toplevel_lhs)), m);
+                            assert_axiom(conflict);
+                            return FC_CONTINUE;
+                        } else {
+                            NOT_IMPLEMENTED_YET();
+                        }
+                        // TODO assert that the concatenation of all temporary variables is equal to the top-level string
+                        // TODO assert that each temporary variable has length 1 (this is pathChars_len_constraints)
                     } else {
                         TRACE("str", tout << "string term doesn't have a length yet; continuing" << std::endl;);
                     }
-                }
-            }
-        }
+                } // foreach(regex_constraints_per_term)
+            } // if (!regex_constraints_per_term.empty())
+        } // if (RegexAutomata)
 
         // run dependence analysis to find free string variables
         std::map<expr*, int> varAppearInAssign;
