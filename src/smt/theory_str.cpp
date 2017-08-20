@@ -9067,20 +9067,20 @@ namespace smt {
                                         SASSERT(cond);
                                         expr * args[2] = {cond, acc};
                                         cond = mk_and(m, 2, args);
-                                        aut_path_add_next(next, trail, mv.dst(), acc);
+                                        aut_path_add_next(next, trail, mv.dst(), cond);
                                     }
                                     else if (mv.t()->is_pred()) {
                                         // rewrite this constraint over string terms
                                         expr_ref cond_rhs = aut_path_rewrite_constraint(mv.t()->get_pred(), ch);
                                         SASSERT(cond_rhs);
 
-                                        if (m.is_false(cond)) {
+                                        if (m.is_false(cond_rhs)) {
                                             continue;
-                                        } else if (m.is_true(cond)) {
+                                        } else if (m.is_true(cond_rhs)) {
                                             aut_path_add_next(next, trail, mv.dst(), acc);
                                             continue;
                                         }
-                                        expr * args[2] = {cond, acc};
+                                        expr * args[2] = {cond_rhs, acc};
                                         cond = mk_and(m, 2, args);
                                         aut_path_add_next(next, trail, mv.dst(), cond);
                                     } else {
