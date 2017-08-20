@@ -8948,6 +8948,7 @@ namespace smt {
 
         // each entry in regex_in_bool_map is of the form (S, "regex") => (str.in.re S RE)
         if (m_params.m_RegexAutomata) {
+            bool axiom_add = false;
             // maps a term to all of the regex constraints that include it
             std::map<expr*, std::vector<expr*> > regex_constraints_per_term;
 
@@ -8974,7 +8975,11 @@ namespace smt {
                     // (length of stringTerm AND regexConstraints) -> (character path constraints)
                     expr_ref_vector toplevel_lhs(m);
 
-                    // TODO don't do this check if we already have a path constraint on this string term
+                    // don't do this check if we already have a path constraint on this string term
+                    if (regex_automata_assertions.contains(stringTerm)) {
+                        TRACE("str", tout << "regex automata assertion already in scope for " << mk_pp(stringTerm, m) << std::endl;);
+                        continue;
+                    }
 
                     TRACE("str", tout << "string term " << mk_pp(stringTerm, m) << " has " << regexConstraints.size() << " regex constraints" << std::endl;);
                     // in order to use the automata, we need to know the length of 'stringTerm'
@@ -9109,15 +9114,35 @@ namespace smt {
                             assert_axiom(conflict);
                             return FC_CONTINUE;
                         } else {
-                            NOT_IMPLEMENTED_YET();
+                            expr_ref concat_rhs(m);
+                            if (pathChars.size() == 1) {
+                                concat_rhs = ctx.mk_eq_atom(stringTerm, pathChars.get(0));
+                            } else if (pathChars.size() == 0) {
+                                NOT_IMPLEMENTED_YET();
+                            } else {
+                                expr_ref acc(pathChars.get(0), m);
+                                for (unsigned i = 1; i < pathChars.size(); ++i) {
+                                    acc = mk_concat(acc, pathChars.get(i));
+                                }
+                                concat_rhs = ctx.mk_eq_atom(stringTerm, acc);
+                            }
+
+                            expr_ref toplevel_rhs(m.mk_and(result, mk_and(pathChars_len_constraints), concat_rhs), m);
+                            expr_ref final_axiom(rewrite_implication(mk_and(toplevel_lhs), toplevel_rhs), m);
+                            regex_automata_assertions.insert(stringTerm, final_axiom);
+                            m_trail_stack.push(insert_obj_map<theory_str, expr, expr* >(regex_automata_assertions, stringTerm) );
+                            assert_axiom(final_axiom);
+                            axiom_add = true;
                         }
-                        // TODO assert that the concatenation of all temporary variables is equal to the top-level string
-                        // TODO assert that each temporary variable has length 1 (this is pathChars_len_constraints)
                     } else {
                         TRACE("str", tout << "string term doesn't have a length yet; continuing" << std::endl;);
                     }
                 } // foreach(regex_constraints_per_term)
             } // if (!regex_constraints_per_term.empty())
+            if (axiom_add) {
+                TRACE("str", tout << "Resuming search due to added regex path constraints." << std::endl;);
+                return FC_CONTINUE;
+            }
         } // if (RegexAutomata)
 
         // run dependence analysis to find free string variables

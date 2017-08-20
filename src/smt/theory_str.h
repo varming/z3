@@ -396,6 +396,9 @@ protected:
     // finite model finding data
     // maps a finite model tester var to a list of variables that will be tested
     obj_map<expr, ptr_vector<expr> > finite_model_test_varlists;
+
+    // maps a string term to a bounded-length regex assertion
+    obj_map<expr, expr*> regex_automata_assertions;
 protected:
     void assert_axiom(expr * e);
     void assert_implication(expr * premise, expr * conclusion);
