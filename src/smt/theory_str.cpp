@@ -1739,6 +1739,11 @@ namespace smt {
             regex_in_var_reg_str_map[ex->get_arg(0)].insert(regexStr);
         }
 
+        if (m_params.m_RegexAutomata) {
+            // stop setting up axioms here. we do automata solving in final check now.
+            return;
+        }
+
         expr_ref str(ex->get_arg(0), m);
         app * regex = to_app(ex->get_arg(1));
 
@@ -1908,7 +1913,7 @@ namespace smt {
             check_contain_in_new_eq(lhs, rhs);
         }
 
-        if (!regex_in_bool_map.empty()) {
+        if (!regex_in_bool_map.empty() && !m_params.m_RegexAutomata) {
             TRACE("str", tout << "checking regex consistency" << std::endl;);
             check_regex_in(lhs, rhs);
         }
@@ -6321,9 +6326,21 @@ namespace smt {
 
             TRACE("str", tout << "range NFA: start = " << start << ", end = " << end << std::endl;);
         } else if (u.re.is_full(e)) {
-            NOT_IMPLEMENTED_YET();
-            m_valid = false;
-            return;
+            // effectively the same as .* where . can be any single character
+            // start --e--> tmp
+            // tmp --e--> end
+            // tmp --C--> tmp for every character C
+            unsigned tmp = next_id();
+            make_epsilon_move(start, tmp);
+            make_epsilon_move(tmp, end);
+            // TODO this assumes a little bit about the alphabet
+            for (unsigned int i = 0; i < 256; ++i) {
+                char ch = (char)i;
+                make_transition(tmp, ch, tmp);
+            }
+            // TODO this is a bit expensive as well. we should use the packaged automata library here instead
+            // of re-implementing this ourselves.
+            TRACE("str", tout << "re.all NFA: start = " << start << ", end = " << end << std::endl;);
         } else {
             TRACE("str", tout << "invalid regular expression" << std::endl;);
             m_valid = false;
@@ -8859,6 +8876,46 @@ namespace smt {
                 return FC_CONTINUE;
             } else {
                 TRACE("str", tout << "Deferred consistency check passed. Continuing in final check." << std::endl;);
+            }
+        }
+
+        // enhancement: use automata-based constraints for regex terms
+        // TODO we necessarily have to do this for non-free variables (in general),
+        // so for each associated variable, check whether any term exists in this map,
+        // and add+continue if it doesn't (combine all regex constraints into one term)
+
+        // each entry in regex_in_bool_map is of the form (S, "regex") => (str.in.re S RE)
+        {
+            // maps a term to all of the regex constraints that include it
+            std::map<expr*, std::vector<expr*> > regex_constraints_per_term;
+
+            std::map<std::pair<expr*, zstring>, expr*>::iterator it = regex_in_bool_map.begin();
+            for (; it != regex_in_bool_map.end(); ++it) {
+                expr * regexMembershipTerm = it->second;
+                expr * str = NULL;
+                expr * re = NULL;
+                if(u.str.is_in_re(regexMembershipTerm, str, re)) {
+                    regex_constraints_per_term[str].push_back(regexMembershipTerm);
+                    TRACE("str", tout << "regex constraint: " << mk_pp(regexMembershipTerm, m) << std::endl;);
+                } else {
+                    // this shouldn't happen
+                    UNREACHABLE();
+                }
+            }
+            if (!regex_constraints_per_term.empty()) {
+                std::map<expr*, std::vector<expr*> >::iterator rx_it = regex_constraints_per_term.begin();
+                for (; rx_it != regex_constraints_per_term.end(); ++rx_it) {
+                    expr * stringTerm = rx_it->first;
+                    std::vector<expr*> regexConstraints = rx_it->second;
+                    TRACE("str", tout << "string term " << mk_pp(stringTerm, m) << " has " << regexConstraints.size() << " regex constraints" << std::endl;);
+                    // in order to use the automata, we need to know the length of 'stringTerm'
+                    rational lenVal;
+                    if (get_len_value(stringTerm, lenVal)) {
+                        NOT_IMPLEMENTED_YET();
+                    } else {
+                        TRACE("str", tout << "string term doesn't have a length yet; continuing" << std::endl;);
+                    }
+                }
             }
         }
 
