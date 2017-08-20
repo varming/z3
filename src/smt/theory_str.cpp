@@ -10520,13 +10520,14 @@ namespace smt {
     // The difference is that in new_eq_eh(), lenTesterInCbEq and its value have NOT been put into a same eqc
     // -----------------------------------------------------------------------------------------------------
     expr * theory_str::gen_len_val_options_for_free_var(expr * freeVar, expr * lenTesterInCbEq, zstring lenTesterValue) {
-
+        context & ctx = get_context();
         ast_manager & m = get_manager();
 
         TRACE("str", tout << "gen for free var " << mk_ismt2_pp(freeVar, m) << std::endl;);
 
         if (m_params.m_UseBinarySearch) {
             TRACE("str", tout << "using binary search heuristic" << std::endl;);
+            // TODO regex automata + binary search
             return binary_search_length_test(freeVar, lenTesterInCbEq, lenTesterValue);
         } else {
             bool map_effectively_empty = false;
@@ -10674,6 +10675,23 @@ namespace smt {
                     SASSERT(lenTestAssert != NULL);
                     return lenTestAssert;
                 } else {
+                    // NEW: if we are using automata-based reasoning and the term associated with this
+                    // length tester is in any way constrained by regex terms,
+                    // DO NOT perform value testing (as this term is not actually a free variable)
+
+                    if (m_params.m_RegexAutomata) {
+                        enode * e_freeVar = ctx.get_enode(freeVar);
+                        vector<enode*>::iterator p_it = e_freeVar->begin_parents();
+                        for (; p_it != e_freeVar->end_parents(); ++p_it) {
+                            enode * e_parent = *p_it;
+                            expr * parent = e_parent->get_owner();
+                            if (u.str.is_in_re(parent)) {
+                                TRACE("str", tout << "prevent value testing on free var " << mk_pp(freeVar, m) << " as it belongs to one or more regex constraints." << std::endl;);
+                                return NULL;
+                            }
+                        }
+                    }
+
                     TRACE("str", tout << "length is fixed; generating models for free var" << std::endl;);
                     // length is fixed
                     expr * valueAssert = gen_free_var_options(freeVar, effectiveLenInd, effectiveLenIndiStr, NULL, zstring(""));
