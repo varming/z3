@@ -9024,7 +9024,30 @@ namespace smt {
                         display_expr1 disp(m);
                         TRACE("str", tout << "product automaton for " << mk_pp(stringTerm, m) << ":" << std::endl; aut_prod->display(tout, disp););
 
-                        // TODO handle strings of length 0
+                        if (lenVal.is_zero()) {
+                            // if any state in the epsilon-closure of the start state is accepting,
+                            // then the empty string is in this language
+                            unsigned_vector states;
+                            bool has_final = false;
+                            aut_prod->get_epsilon_closure(aut_prod->init(), states);
+                            for (unsigned i = 0; i < states.size() && !has_final; ++i) {
+                                has_final = aut_prod->is_final_state(states[i]);
+                            }
+                            if (has_final) {
+                                // empty string is OK, assert axiom
+                                expr_ref rhs(ctx.mk_eq_atom(stringTerm, mk_string("")), m);
+                                expr_ref final_axiom(rewrite_implication(mk_and(toplevel_lhs), rhs), m);
+                                SASSERT(final_axiom);
+                                regex_automata_assertions.insert(stringTerm, final_axiom);
+                                m_trail_stack.push(insert_obj_map<theory_str, expr, expr* >(regex_automata_assertions, stringTerm) );
+                                assert_axiom(final_axiom);
+                            } else {
+                                // negate -- the empty string isn't in the language
+                                expr_ref conflict(m.mk_not(mk_and(toplevel_lhs)), m);
+                                assert_axiom(conflict);
+                            }
+                            return FC_CONTINUE;
+                        } // lenVal.is_zero()
 
                         expr_ref_vector pathChars(m);
                         expr_ref_vector pathChars_len_constraints(m);
