@@ -74,6 +74,14 @@ namespace smt {
 
     theory_str::~theory_str() {
         m_trail_stack.reset();
+        // free regex_automaton_cache
+        {
+            obj_map<expr, eautomaton*>::iterator it = regex_automaton_cache.begin();
+            for (; it != regex_automaton_cache.end(); ++it) {
+                eautomaton * aut = it->m_value;
+                dealloc(aut);
+            }
+        }
     }
 
     expr * theory_str::mk_string(zstring const& str) {
@@ -7555,16 +7563,17 @@ namespace smt {
                     }
                 }
                 // intersect all automata and check for emptiness
-                // TODO: potentially cache intermediate results for non-empty intersection automata?
                 if (!automata.empty()) {
                     display_expr1 disp(m);
                     eautomaton * aut_inter = automata[0];
+                    scoped_ptr_vector<eautomaton> aut_tmp;
                     TRACE("str", tout << "automata[0]:" << std::endl; automata[0]->display(tout, disp););
                     TRACE("str", tout << "regex[0]: " << mk_pp(regex_membership_terms.get(0), m) << std::endl;);
                     for (unsigned i = 1; i < automata.size(); ++i) {
                         TRACE("str", tout << "automata[" << i << "]:" << std::endl; automata[i]->display(tout, disp););
                         TRACE("str", tout << "regex[" << i << "]: " << mk_pp(regex_membership_terms.get(i), m) << std::endl;);
                         aut_inter = m_mk_aut.mk_product(aut_inter, automata[i]);
+                        aut_tmp.push_back(aut_inter);
                     }
                     aut_inter->compress();
                     TRACE("str", tout << "final product automaton: " << std::endl; aut_inter->display(tout, disp););
@@ -8989,6 +8998,8 @@ namespace smt {
 
                         bool first = true;
                         eautomaton * aut_prod;
+                        // memory management -- mk_product() always allocates a new automaton
+                        scoped_ptr_vector<eautomaton> aut_tmp;
                         // intersect all automaton constraints
                         for (std::vector<expr*>::iterator constraint_it = regexConstraints.begin(); constraint_it != regexConstraints.end(); ++constraint_it) {
                             expr * strInRe = *constraint_it;
@@ -9019,6 +9030,7 @@ namespace smt {
                                 first = false;
                             } else {
                                 aut_prod = m_mk_aut.mk_product(aut_prod, aut);
+                                aut_tmp.push_back(aut_prod);
                             }
                         } // foreach(regexConstraints)
                         display_expr1 disp(m);
