@@ -4635,13 +4635,20 @@ namespace smt {
 
         context & ctx = get_context();
 
-        if (!ctx.e_internalized(n)) {
-            ctx.internalize(n, false);
-            mk_var(ctx.get_enode(n));
+        // fast path 1: n is a string constant
+        if (u.str.is_string(n)) {
+            hasEqcValue = true;
+            return n;
+        }
+
+        // fast path 2: not a theory var
+        theory_var v = get_var(n);
+        if (v == null_theory_var) {
+            hasEqcValue = false;
+            return n;
         }
 
         // This depends on our invariant being maintained in new_eq_eh();
-        theory_var v = get_var(n);
         theory_var v_root = m_find.find(v);
         expr * e_root = get_ast(v_root);
 
