@@ -54,6 +54,8 @@ public:
     sort* get_sort() const { return m_sort; }
     expr* get_char() const { SASSERT(is_char()); return m_t; }
     expr* get_pred() const { SASSERT(is_pred()); return m_t; }
+    expr* get_lo() const { SASSERT(is_range()); return m_t; }
+    expr* get_hi() const { SASSERT(is_range()); return m_s; }
 
 };
 

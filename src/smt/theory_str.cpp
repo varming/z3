@@ -9192,8 +9192,40 @@ namespace smt {
                                         expr * args[2] = {cond, acc};
                                         cond = mk_and(m, 2, args);
                                         aut_path_add_next(next, trail, mv.dst(), cond);
-                                    }
-                                    else if (mv.t()->is_pred()) {
+                                    } else if (mv.t()->is_range()) {
+                                        expr_ref range_lo(mv.t()->get_lo(), m);
+                                        expr_ref range_hi(mv.t()->get_hi(), m);
+                                        bv_util bvu(m);
+
+                                        rational lo_val, hi_val;
+                                        unsigned int bv_width;
+
+                                        if (bvu.is_numeral(range_lo, lo_val, bv_width) && bvu.is_numeral(range_hi, hi_val, bv_width)) {
+                                            TRACE("str", tout << "make range predicate from " << lo_val << " to " << hi_val << std::endl;);
+                                            expr_ref cond_rhs(m);
+
+                                            if (hi_val < lo_val) {
+                                                rational tmp = lo_val;
+                                                lo_val = hi_val;
+                                                hi_val = tmp;
+                                            }
+
+                                            expr_ref_vector cond_rhs_terms(m);
+                                            for (unsigned i = lo_val.get_unsigned(); i <= hi_val.get_unsigned(); ++i) {
+                                                zstring str_const(i);
+                                                expr_ref str_expr(u.str.mk_string(str_const), m);
+                                                cond_rhs_terms.push_back(ctx.mk_eq_atom(ch, str_expr));
+                                            }
+                                            cond_rhs = mk_or(cond_rhs_terms);
+                                            SASSERT(cond_rhs);
+                                            expr * args[2] = {cond_rhs, acc};
+                                            cond = mk_and(m, 2, args);
+                                            aut_path_add_next(next, trail, mv.dst(), cond);
+                                        } else {
+                                            TRACE("str", tout << "warning: non-bitvectors in automaton range predicate" << std::endl;);
+                                            UNREACHABLE();
+                                        }
+                                    } else if (mv.t()->is_pred()) {
                                         // rewrite this constraint over string terms
                                         expr_ref cond_rhs = aut_path_rewrite_constraint(mv.t()->get_pred(), ch);
                                         SASSERT(cond_rhs);
@@ -9207,9 +9239,6 @@ namespace smt {
                                         expr * args[2] = {cond_rhs, acc};
                                         cond = mk_and(m, 2, args);
                                         aut_path_add_next(next, trail, mv.dst(), cond);
-                                    } else {
-                                        TRACE("str", tout << "warning: unhandled path constraint" << std::endl;);
-                                        NOT_IMPLEMENTED_YET();
                                     }
                                 }
                             }
@@ -9241,8 +9270,6 @@ namespace smt {
                             expr_ref concat_rhs(m);
                             if (pathChars.size() == 1) {
                                 concat_rhs = ctx.mk_eq_atom(stringTerm, pathChars.get(0));
-                            } else if (pathChars.size() == 0) {
-                                NOT_IMPLEMENTED_YET();
                             } else {
                                 expr_ref acc(pathChars.get(0), m);
                                 for (unsigned i = 1; i < pathChars.size(); ++i) {
