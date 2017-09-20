@@ -31,6 +31,7 @@
 #include<map>
 #include "ast/seq_decl_plugin.h"
 #include "util/union_find.h"
+#include "seq_rewriter.h"
 
 namespace smt {
 
