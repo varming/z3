@@ -21,13 +21,13 @@ Notes:
 #define SLS_TRACKER_H_
 
 #include<math.h>
-#include"for_each_expr.h"
-#include"ast_smt2_pp.h"
-#include"bv_decl_plugin.h"
-#include"model.h"
+#include "ast/for_each_expr.h"
+#include "ast/ast_smt2_pp.h"
+#include "ast/bv_decl_plugin.h"
+#include "model/model.h"
 
-#include"sls_params.hpp"
-#include"sls_powers.h"
+#include "tactic/sls/sls_params.hpp"
+#include "tactic/sls/sls_powers.h"
 
 class sls_tracker {
     ast_manager         & m_manager;
@@ -68,7 +68,7 @@ private:
     typedef obj_map<expr, value_score> scores_type;    
     typedef obj_map<expr, ptr_vector<expr> > uplinks_type;    
     typedef obj_map<expr, ptr_vector<func_decl> > occ_type;
-    obj_hashtable<expr>	  m_top_expr;
+    obj_hashtable<expr>      m_top_expr;
     scores_type           m_scores;
     uplinks_type          m_uplinks;
     entry_point_type      m_entry_points;
@@ -85,11 +85,11 @@ private:
     unsigned              m_touched;
     double                m_scale_unsat;
     unsigned              m_paws_init;
-    obj_map<expr, unsigned>	m_where_false;
-    expr**					m_list_false;
+    obj_map<expr, unsigned>    m_where_false;
+    expr**                    m_list_false;
     unsigned              m_track_unsat;
     obj_map<expr, unsigned> m_weights;
-    double				  m_top_sum;
+    double                  m_top_sum;
     obj_hashtable<expr>   m_temp_seen;
 
 public:    
@@ -450,7 +450,7 @@ public:
             m_list_false = new expr*[sz];
             for (unsigned i = 0; i < sz; i++)
             {
-        	    if (m_mpz_manager.eq(get_value(as[i]), m_zero))
+                if (m_mpz_manager.eq(get_value(as[i]), m_zero))
                     break_assertion(as[i]);
             }
         }
@@ -462,7 +462,7 @@ public:
 
             // initialize weights
             if (!m_weights.contains(e))
-        		m_weights.insert(e, m_paws_init);
+                m_weights.insert(e, m_paws_init);
 
             // positive/negative occurrences used for early pruning
             setup_occs(as[i]);
@@ -1075,7 +1075,7 @@ public:
 
             unsigned cnt_unsat = 0;
             for (unsigned i = 0; i < sz; i++)
-                if (m_mpz_manager.neq(get_value(as[i]), m_one) && (get_random_uint(16) % ++cnt_unsat == 0)) pos = i;	
+                if (m_mpz_manager.neq(get_value(as[i]), m_one) && (get_random_uint(16) % ++cnt_unsat == 0)) pos = i;    
             if (pos == static_cast<unsigned>(-1))
                 return 0;
         }
@@ -1092,7 +1092,7 @@ public:
         
         unsigned cnt_unsat = 0, pos = -1;
         for (unsigned i = 0; i < sz; i++)
-            if ((i != m_last_pos) && m_mpz_manager.neq(get_value(as[i]), m_one) && (get_random_uint(16) % ++cnt_unsat == 0)) pos = i;	
+            if ((i != m_last_pos) && m_mpz_manager.neq(get_value(as[i]), m_one) && (get_random_uint(16) % ++cnt_unsat == 0)) pos = i;
 
         if (pos == static_cast<unsigned>(-1))
             return 0;

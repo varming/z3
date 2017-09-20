@@ -397,23 +397,23 @@ typedef enum
        (xor3 l1 l2 l3) <=> (xor (xor l1 l2) l3)
 
    - Z3_OP_BSMUL_NO_OVFL: a predicate to check that bit-wise signed multiplication does not overflow.
-     Signed multiplication overflows if the operands have the same sign and the result of multiplication 
+     Signed multiplication overflows if the operands have the same sign and the result of multiplication
      does not fit within the available bits. \sa Z3_mk_bvmul_no_overflow.
 
    - Z3_OP_BUMUL_NO_OVFL: check that bit-wise unsigned multiplication does not overflow.
      Unsigned multiplication overflows if the result does not fit within the available bits.
      \sa Z3_mk_bvmul_no_overflow.
-    
+
    - Z3_OP_BSMUL_NO_UDFL: check that bit-wise signed multiplication does not underflow.
      Signed multiplication underflows if the operands have opposite signs and the result of multiplication
      does not fit within the avaialble bits. Z3_mk_bvmul_no_underflow.
-    
-   - Z3_OP_BSDIV_I: Binary signed division. 
+
+   - Z3_OP_BSDIV_I: Binary signed division.
      It has the same semantics as Z3_OP_BSDIV, but created in a context where the second operand can be assumed to be non-zero.
 
    - Z3_OP_BUDIV_I: Binary unsigned division.
      It has the same semantics as Z3_OP_BUDIV, but created in a context where the second operand can be assumed to be non-zero.
-    
+
    - Z3_OP_BSREM_I: Binary signed remainder.
      It has the same semantics as Z3_OP_BSREM, but created in a context where the second operand can be assumed to be non-zero.
 
@@ -979,7 +979,35 @@ typedef enum
 
       - Z3_OP_FPA_TO_IEEE_BV: Floating-point conversion to IEEE-754 bit-vector
 
-      - Z3_OP_INTERNAL: internal (often interpreted) symbol, but no additional information is exposed. Tools may use the string representation of the function declaration to obtain more information.
+      - Z3_OP_FPA_BVWRAP: (Implicitly) represents the internal bitvector-
+        representation of a floating-point term (used for the lazy encoding
+        of non-relevant terms in theory_fpa)
+
+      - Z3_OP_FPA_BV2RM: Conversion of a 3-bit bit-vector term to a
+        floating-point rouding-mode term
+
+        The conversion uses the following values:
+            0 = 000 = Z3_OP_FPA_RM_NEAREST_TIES_TO_EVEN,
+            1 = 001 = Z3_OP_FPA_RM_NEAREST_TIES_TO_AWAY,
+            2 = 010 = Z3_OP_FPA_RM_TOWARD_POSITIVE,
+            3 = 011 = Z3_OP_FPA_RM_TOWARD_NEGATIVE,
+            4 = 100 = Z3_OP_FPA_RM_TOWARD_ZERO.
+
+      - Z3_OP_FPA_MIN_I: The same as Z3_OP_FPA_MIN, but the arguments are
+        expected not to be zeroes with different signs.
+
+      - Z3_OP_FPA_MAX_I: The same as Z3_OP_FPA_MAX, but the arguments are
+        expected not to be zeroes with different signs.
+
+      - Z3_OP_FPA_MIN_UNSPECIFIED: The same as Z3_OP_FPA_MIN, but the
+        arguments are expected to be zeroes with different signs.
+
+      - Z3_OP_FPA_MAX_UNSPECIFIED: The same as Z3_OP_FPA_MAX, but the
+        arguments are expected to be zeroes with different signs.
+
+      - Z3_OP_INTERNAL: internal (often interpreted) symbol, but no additional
+        information is exposed. Tools may use the string representation of the
+        function declaration to obtain more information.
 
       - Z3_OP_UNINTERPRETED: kind used for uninterpreted symbols.
 */
@@ -1266,6 +1294,11 @@ typedef enum {
     Z3_OP_FPA_MIN_I,
     Z3_OP_FPA_MAX_I,
 
+    Z3_OP_FPA_BVWRAP,
+    Z3_OP_FPA_BV2RM,
+    Z3_OP_FPA_MIN_UNSPECIFIED,
+    Z3_OP_FPA_MAX_UNSPECIFIED,
+
     Z3_OP_INTERNAL,
 
     Z3_OP_UNINTERPRETED
@@ -1530,7 +1563,7 @@ extern "C" {
        In contrast to #Z3_mk_context_rc, the life time of Z3_ast objects
        are determined by the scope level of #Z3_solver_push and #Z3_solver_pop.
        In other words, a Z3_ast object remains valid until there is a
-       call to Z3_pop that takes the current scope below the level where
+       call to Z3_solver_pop that takes the current scope below the level where
        the object was created.
 
        Note that all other reference counted objects, including Z3_model,
@@ -3361,7 +3394,7 @@ extern "C" {
        \brief Convert string to integer.
 
        def_API('Z3_mk_str_to_int' ,AST ,(_in(CONTEXT), _in(AST)))
-     */    
+     */
     Z3_ast Z3_API Z3_mk_str_to_int(Z3_context c, Z3_ast s);
 
 
@@ -3369,7 +3402,7 @@ extern "C" {
        \brief Integer to string conversion.
 
        def_API('Z3_mk_int_to_str' ,AST ,(_in(CONTEXT), _in(AST)))
-     */    
+     */
     Z3_ast Z3_API Z3_mk_int_to_str(Z3_context c, Z3_ast s);
 
     /**
@@ -4680,6 +4713,14 @@ extern "C" {
 
     /** @name Models */
     /*@{*/
+
+    /**
+       \brief Create a fresh model object. It has reference count 0.
+
+       def_API('Z3_mk_model', MODEL, (_in(CONTEXT),))
+    */
+    Z3_model Z3_API Z3_mk_model(Z3_context c);
+
     /**
        \brief Increment the reference counter of the given model.
 
@@ -4851,6 +4892,26 @@ extern "C" {
     Z3_func_decl Z3_API Z3_get_as_array_func_decl(Z3_context c, Z3_ast a);
 
     /**
+       \brief Create a fresh func_interp object, add it to a model for a specified function.
+       It has reference count 0.
+
+       \param c context
+       \param m model
+       \param f function declaration
+       \param default_value default value for function interpretation
+
+       def_API('Z3_add_func_interp', FUNC_INTERP, (_in(CONTEXT), _in(MODEL), _in(FUNC_DECL), _in(AST)))
+    */
+    Z3_func_interp Z3_API Z3_add_func_interp(Z3_context c, Z3_model m, Z3_func_decl f, Z3_ast default_value);
+
+    /**
+       \brief Add a constant interpretation.
+
+       def_API('Z3_add_const_interp', VOID, (_in(CONTEXT), _in(MODEL), _in(FUNC_DECL), _in(AST)))
+     */
+    void Z3_API Z3_add_const_interp(Z3_context c, Z3_model m, Z3_func_decl f, Z3_ast a);
+
+    /**
        \brief Increment the reference counter of the given Z3_func_interp object.
 
        def_API('Z3_func_interp_inc_ref', VOID, (_in(CONTEXT), _in(FUNC_INTERP)))
@@ -4898,11 +4959,37 @@ extern "C" {
     Z3_ast Z3_API Z3_func_interp_get_else(Z3_context c, Z3_func_interp f);
 
     /**
+       \brief Return the 'else' value of the given function interpretation.
+
+       A function interpretation is represented as a finite map and an 'else' value.
+       This procedure can be used to update the 'else' value.
+
+       def_API('Z3_func_interp_set_else', VOID, (_in(CONTEXT), _in(FUNC_INTERP), _in(AST)))
+    */
+    void Z3_API Z3_func_interp_set_else(Z3_context c, Z3_func_interp f, Z3_ast else_value);
+
+    /**
        \brief Return the arity (number of arguments) of the given function interpretation.
 
        def_API('Z3_func_interp_get_arity', UINT, (_in(CONTEXT), _in(FUNC_INTERP)))
     */
     unsigned Z3_API Z3_func_interp_get_arity(Z3_context c, Z3_func_interp f);
+
+    /**
+       \brief add a function entry to a function interpretation.
+
+       \param c logical context
+       \param fi a function interpregation to be updated.
+       \param args list of arguments. They should be constant values (such as integers) and be of the same types as the domain of the function.
+       \param value value of the function when the parameters match args.
+
+       It is assumed that entries added to a function cover disjoint arguments.
+       If an two entries are added with the same arguments, only the second insertion survives and the
+       first inserted entry is removed.
+
+       def_API('Z3_func_interp_add_entry', VOID, (_in(CONTEXT), _in(FUNC_INTERP), _in(AST_VECTOR), _in(AST)))
+     */
+    void Z3_API Z3_func_interp_add_entry(Z3_context c, Z3_func_interp fi, Z3_ast_vector args, Z3_ast value);
 
     /**
        \brief Increment the reference counter of the given Z3_func_entry object.

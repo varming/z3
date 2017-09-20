@@ -16,10 +16,10 @@ Author:
 Notes:
 
 --*/
-#include"pull_quant.h"
-#include"var_subst.h"
-#include"rewriter_def.h"
-#include"ast_pp.h"
+#include "ast/normal_forms/pull_quant.h"
+#include "ast/rewriter/var_subst.h"
+#include "ast/rewriter/rewriter_def.h"
+#include "ast/ast_pp.h"
 
 struct pull_quant::imp {
     
@@ -244,7 +244,7 @@ struct pull_quant::imp {
                     quantifier * q1 = m_manager.update_quantifier(to_quantifier(n), new_expr);
                     proof * p1 = 0;
                     if (n != q1) {
-                        proof * p0 = m_manager.mk_pull_quant(to_quantifier(n)->get_expr(), to_quantifier(new_expr));
+                        proof * p0 = m_manager.mk_pull_quant(n, to_quantifier(new_expr));
                         p1 = m_manager.mk_quant_intro(to_quantifier(n), q1, p0);
                     }
                     proof * p2 = q1 == r ? 0 : m_manager.mk_pull_quant(q1, to_quantifier(r));
