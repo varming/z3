@@ -4943,6 +4943,8 @@ namespace smt {
             ctx.internalize(n2, false);
         }
 
+        // TODO this is really slow -- we should be able to use eqc roots
+
         expr * curr = get_eqc_next(n1);
         while (curr != n1) {
             if (curr == n2)
@@ -7799,6 +7801,30 @@ namespace smt {
                 tout << mk_ismt2_pp(ex, m) << (ctx.is_relevant(ex) ? "" : " (NOT REL)") << std::endl;
             }
                    );
+    }
+
+    // returns true if needle appears as a subterm anywhere under haystack,
+    // or if needle appears in the same EQC as a subterm anywhere under haystack
+    bool theory_str::term_appears_as_subterm(expr * needle, expr * haystack) {
+        context & ctx = get_context();
+        ast_manager & m = get_manager();
+
+        if (in_same_eqc(needle, haystack)) {
+            return true;
+        }
+
+        if (is_app(haystack)) {
+            app * a_haystack = to_app(haystack);
+            for (unsigned i = 0; i < a_haystack->get_num_args(); ++i) {
+                expr * subterm = a_haystack->get_arg(i);
+                if (term_appears_as_subterm(needle, subterm)) {
+                    return true;
+                }
+            }
+        }
+
+        // not found
+        return false;
     }
 
     void theory_str::classify_ast_by_type(expr * node, std::map<expr*, int> & varMap,
@@ -10831,12 +10857,14 @@ namespace smt {
                     // DO NOT perform value testing (as this term is not actually a free variable)
 
                     if (m_params.m_RegexAutomata) {
-                        enode * e_freeVar = ctx.get_enode(freeVar);
-                        vector<enode*>::iterator p_it = e_freeVar->begin_parents();
-                        for (; p_it != e_freeVar->end_parents(); ++p_it) {
-                            enode * e_parent = *p_it;
-                            expr * parent = e_parent->get_owner();
-                            if (u.str.is_in_re(parent)) {
+                        std::map<std::pair<expr*, zstring>, expr*>::iterator it = regex_in_bool_map.begin();
+                        for (; it != regex_in_bool_map.end(); ++it) {
+                            expr * re = it->second;
+                            expr * re_str = to_app(re)->get_arg(0);
+                            // recursive descent through all subterms of re_str to see if any of them are
+                            // - the same as freeVar
+                            // - in the same EQC as freeVar
+                            if (term_appears_as_subterm(freeVar, re_str)) {
                                 TRACE("str", tout << "prevent value testing on free var " << mk_pp(freeVar, m) << " as it belongs to one or more regex constraints." << std::endl;);
                                 return NULL;
                             }

@@ -566,6 +566,7 @@ protected:
     void print_value_tester_list(svector<std::pair<int, expr*> > & testerList);
     bool get_next_val_encode(int_vector & base, int_vector & next);
     zstring gen_val_string(int len, int_vector & encoding);
+    bool term_appears_as_subterm(expr * needle, expr * haystack);
 
     // binary search heuristic
     expr * binary_search_length_test(expr * freeVar, expr * previousLenTester, zstring previousLenTesterValue);
