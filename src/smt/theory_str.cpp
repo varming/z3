@@ -7665,12 +7665,28 @@ namespace smt {
                     TRACE("str", tout << "final product automaton: " << std::endl; aut_inter->display(tout, disp););
                     // if the resulting automaton is empty, the current set of regex constraints
                     // over this string is unsatisfiable
-                    // TODO: do we need to perform this check in a more general way?
                     if (aut_inter->is_empty()) {
                         TRACE("str", tout << "intersecting regex constraints on " << mk_pp(str, m) << " are UNSAT" << std::endl;);
                         expr_ref regex_axiom(m.mk_not(mk_and(regex_membership_terms)), m);
                         SASSERT(regex_axiom);
                         assert_axiom(regex_axiom);
+                    }
+
+                    // if the resulting automaton only accepts the empty string, learn this fact
+                    // TODO: we can perform more general checks here, e.g. finiteness, bounds on length, etc.
+                    {
+                        unsigned initial_state = aut_inter->init();
+                        if (aut_inter->final_states().size() == 1 && aut_inter->is_final_state(initial_state)) {
+                            // initial state is final and is the only final state;
+                            // see if there are any moves from the initial state
+                            eautomaton::moves moves = aut_inter->get_moves_from(initial_state);
+                            if (moves.empty()) {
+                                TRACE("str", tout << "intersecting regex constraints on " << mk_pp(str, m) << " only allow the empty string" << std::endl;);
+                                expr_ref regex_premise(mk_and(regex_membership_terms), m);
+                                expr_ref regex_conclusion(ctx.mk_eq_atom(str, mk_string("")), m);
+                                assert_implication(regex_premise, regex_conclusion);
+                            }
+                        }
                     }
                 }
             }
