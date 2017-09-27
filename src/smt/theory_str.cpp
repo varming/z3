@@ -7822,9 +7822,6 @@ namespace smt {
     // returns true if needle appears as a subterm anywhere under haystack,
     // or if needle appears in the same EQC as a subterm anywhere under haystack
     bool theory_str::term_appears_as_subterm(expr * needle, expr * haystack) {
-        context & ctx = get_context();
-        ast_manager & m = get_manager();
-
         if (in_same_eqc(needle, haystack)) {
             return true;
         }
