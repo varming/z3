@@ -25,6 +25,7 @@
 #include "smt/theory_seq_empty.h"
 #include "smt/theory_arith.h"
 #include "ast/ast_util.h"
+#include "util/stopwatch.h"
 
 namespace smt {
 
@@ -4712,7 +4713,12 @@ namespace smt {
      */
 
     expr * theory_str::get_eqc_value(expr * n, bool & hasEqcValue) {
-        return z3str2_get_eqc_value(n, hasEqcValue);
+        stopwatch st;
+        st.start();
+        expr * e = z3str2_get_eqc_value(n, hasEqcValue);
+        st.stop();
+        m_stats.m_get_eqc_value_time += st.get_seconds();
+        return e;
     }
 
 
@@ -10639,6 +10645,7 @@ namespace smt {
         st.update("str len test count", m_stats.m_len_test_count);
         st.update("str value test count", m_stats.m_value_test_count);
         st.update("str max free var count", m_stats.m_max_free_var_count);
+        st.update("str get_eqc_value time", m_stats.m_get_eqc_value_time);
     }
 
 }; /* namespace smt */

@@ -37,6 +37,7 @@ namespace smt {
 struct theory_str_stats {
     unsigned m_len_test_count, m_value_test_count;
     unsigned m_max_free_var_count; // highest number of free variables seen in final_check
+    double m_get_eqc_value_time;
 
     void reset() { memset(this, 0, sizeof(theory_str_stats)); }
     theory_str_stats() { reset(); }
