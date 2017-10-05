@@ -34,6 +34,14 @@
 
 namespace smt {
 
+struct theory_str_stats {
+    unsigned m_len_test_count, m_value_test_count;
+    unsigned m_max_free_var_count; // highest number of free variables seen in final_check
+
+    void reset() { memset(this, 0, sizeof(theory_str_stats)); }
+    theory_str_stats() { reset(); }
+};
+
 typedef hashtable<symbol, symbol_hash_proc, symbol_eq_proc> symbol_set;
 
 class str_value_factory : public value_factory {
@@ -187,6 +195,7 @@ class theory_str : public theory {
     typedef map<zstring, expr*, zstring_hash_proc, default_eq<zstring> > string_map;
 
 protected:
+    theory_str_stats m_stats;
     theory_str_params const & m_params;
 
     /*
@@ -614,6 +623,7 @@ public:
 
     virtual char const * get_name() const { return "seq"; }
     virtual void display(std::ostream & out) const;
+    virtual void collect_statistics(::statistics & st) const;
 
     bool overlapping_variables_detected() const { return loopDetected; }
 

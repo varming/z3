@@ -7026,6 +7026,7 @@ namespace smt {
 
     void theory_str::more_len_tests(expr * lenTester, zstring lenTesterValue) {
         ast_manager & m = get_manager();
+        m_stats.m_len_test_count++;
         if (lenTester_fvar_map.contains(lenTester)) {
             expr * fVar = lenTester_fvar_map[lenTester];
             expr_ref toAssert(gen_len_val_options_for_free_var(fVar, lenTester, lenTesterValue), m);
@@ -7038,6 +7039,7 @@ namespace smt {
 
     void theory_str::more_value_tests(expr * valTester, zstring valTesterValue) {
         ast_manager & m = get_manager(); (void)m;
+        m_stats.m_value_test_count++;
 
         expr * fVar = valueTester_fvar_map[valTester];
         if (m_params.m_UseBinarySearch) {
@@ -8996,6 +8998,12 @@ namespace smt {
                    tout << mk_ismt2_pp(var, m) << std::endl;
                }
                );
+        { // collect some stats on free variables
+            unsigned free_var_count = free_variables.size();
+            if (free_var_count > m_stats.m_max_free_var_count) {
+                m_stats.m_max_free_var_count = free_var_count;
+            }
+        }
 
         // -----------------------------------------------------------
         // variables in freeVar are those not bounded by Concats
@@ -9247,6 +9255,7 @@ namespace smt {
                                        zstring lenStr, int tries) {
         ast_manager & m = get_manager();
         context & ctx = get_context();
+        m_stats.m_value_test_count++;
 
         int distance = 32;
 
@@ -9883,6 +9892,7 @@ namespace smt {
     expr * theory_str::gen_len_test_options(expr * freeVar, expr * indicator, int tries) {
         ast_manager & m = get_manager();
         context & ctx = get_context();
+        m_stats.m_len_test_count++;
 
         expr_ref freeVarLen(mk_strlen(freeVar), m);
         SASSERT(freeVarLen);
@@ -10623,6 +10633,12 @@ namespace smt {
 
     void theory_str::display(std::ostream & out) const {
         out << "TODO: theory_str display" << std::endl;
+    }
+
+    void theory_str::collect_statistics(::statistics & st) const {
+        st.update("str len test count", m_stats.m_len_test_count);
+        st.update("str value test count", m_stats.m_value_test_count);
+        st.update("str max free var count", m_stats.m_max_free_var_count);
     }
 
 }; /* namespace smt */
