@@ -8796,6 +8796,8 @@ namespace smt {
     final_check_status theory_str::final_check_eh() {
         context & ctx = get_context();
         ast_manager & m = get_manager();
+        stopwatch st;
+        st.start();
 
         expr_ref_vector assignments(m);
         ctx.get_assignments(assignments);
@@ -8854,6 +8856,8 @@ namespace smt {
 
             if (found_inconsistency) {
                 TRACE("str", tout << "Found inconsistency in final check! Returning to search." << std::endl;);
+                st.stop();
+                m_stats.m_final_check_time += st.get_seconds();
                 return FC_CONTINUE;
             } else {
                 TRACE("str", tout << "Deferred consistency check passed. Continuing in final check." << std::endl;);
@@ -8868,6 +8872,8 @@ namespace smt {
         int conflictInDep = ctx_dep_analysis(varAppearInAssign, freeVar_map, unrollGroup_map, var_eq_concat_map);
         if (conflictInDep == -1) {
             // return Z3_TRUE;
+            st.stop();
+            m_stats.m_final_check_time += st.get_seconds();
             return FC_DONE;
         }
 
@@ -8907,6 +8913,8 @@ namespace smt {
 
         if (backpropagation_occurred) {
             TRACE("str", tout << "Resuming search due to axioms added by backpropagation." << std::endl;);
+            st.stop();
+            m_stats.m_final_check_time += st.get_seconds();
             return FC_CONTINUE;
         }
 
@@ -8919,6 +8927,8 @@ namespace smt {
             bool length_propagation_occurred = propagate_length(varSet, concatSet, exprLenMap);
             if (length_propagation_occurred) {
                 TRACE("str", tout << "Resuming search due to axioms added by length propagation." << std::endl;);
+                st.stop();
+                m_stats.m_final_check_time += st.get_seconds();
                 return FC_CONTINUE;
             }
         }
@@ -8976,11 +8986,15 @@ namespace smt {
             }
             if (addedStrIntAxioms) {
                 TRACE("str", tout << "Resuming search due to addition of string-integer conversion axioms." << std::endl;);
+                st.stop();
+                m_stats.m_final_check_time += st.get_seconds();
                 return FC_CONTINUE;
             }
 
             if (unused_internal_variables.empty()) {
                 TRACE("str", tout << "All variables are assigned. Done!" << std::endl;);
+                st.stop();
+                m_stats.m_final_check_time += st.get_seconds();
                 return FC_DONE;
             } else {
                 TRACE("str", tout << "Assigning decoy values to free internal variables." << std::endl;);
@@ -8989,6 +9003,8 @@ namespace smt {
                     expr_ref assignment(m.mk_eq(var, mk_string("**unused**")), m);
                     assert_axiom(assignment);
                 }
+                st.stop();
+                m_stats.m_final_check_time += st.get_seconds();
                 return FC_CONTINUE;
             }
         }
@@ -9173,6 +9189,8 @@ namespace smt {
             m.raise_exception("no progress in theory_str final check");
         }
 
+        st.stop();
+        m_stats.m_final_check_time += st.get_seconds();
         return FC_CONTINUE; // since by this point we've added axioms
     }
 
@@ -10646,6 +10664,7 @@ namespace smt {
         st.update("str value test count", m_stats.m_value_test_count);
         st.update("str max free var count", m_stats.m_max_free_var_count);
         st.update("str get_eqc_value time", m_stats.m_get_eqc_value_time);
+        st.update("str final_check time", m_stats.m_final_check_time);
     }
 
 }; /* namespace smt */
