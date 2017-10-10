@@ -63,7 +63,8 @@ namespace smt {
         cacheMissCount(0),
         m_fresh_id(0),
         m_find(*this),
-        m_trail_stack(*this)
+        m_trail_stack(*this),
+        currently_timing_model_construction(false)
     {
         initialize_charset();
     }
@@ -7624,6 +7625,10 @@ namespace smt {
 
         TRACE_CODE(if (is_trace_enabled("t_str_dump_assign_on_scope_change")) { dump_assignments(); });
 
+        if (currently_timing_model_construction && sLevel < top_model_construction_scope) {
+            stop_timing_model_construction();
+        }
+
         // list of expr* to remove from cut_var_map
         ptr_vector<expr> cutvarmap_removes;
 
@@ -8793,6 +8798,26 @@ namespace smt {
         }
     }
 
+    void theory_str::start_timing_model_construction() {
+        if (currently_timing_model_construction) {
+            return;
+        }
+        currently_timing_model_construction = true;
+        top_model_construction_scope = sLevel;
+        sw_model_construction.reset();
+        sw_model_construction.start();
+    }
+
+    void theory_str::stop_timing_model_construction() {
+        if (!currently_timing_model_construction) {
+            return;
+        }
+        currently_timing_model_construction = false;
+        sw_model_construction.stop();
+        m_stats.m_model_construction_time += sw_model_construction.get_seconds();
+        sw_model_construction.reset();
+    }
+
     final_check_status theory_str::final_check_eh() {
         context & ctx = get_context();
         ast_manager & m = get_manager();
@@ -8874,6 +8899,7 @@ namespace smt {
             // return Z3_TRUE;
             st.stop();
             m_stats.m_final_check_time += st.get_seconds();
+            stop_timing_model_construction();
             return FC_DONE;
         }
 
@@ -8995,6 +9021,7 @@ namespace smt {
                 TRACE("str", tout << "All variables are assigned. Done!" << std::endl;);
                 st.stop();
                 m_stats.m_final_check_time += st.get_seconds();
+                stop_timing_model_construction();
                 return FC_DONE;
             } else {
                 TRACE("str", tout << "Assigning decoy values to free internal variables." << std::endl;);
@@ -10266,6 +10293,8 @@ namespace smt {
 
         TRACE("str", tout << "gen for free var " << mk_ismt2_pp(freeVar, m) << std::endl;);
 
+        start_timing_model_construction();
+
         if (m_params.m_UseBinarySearch) {
             TRACE("str", tout << "using binary search heuristic" << std::endl;);
             return binary_search_length_test(freeVar, lenTesterInCbEq, lenTesterValue);
@@ -10665,6 +10694,7 @@ namespace smt {
         st.update("str max free var count", m_stats.m_max_free_var_count);
         st.update("str get_eqc_value time", m_stats.m_get_eqc_value_time);
         st.update("str final_check time", m_stats.m_final_check_time);
+        st.update("str model construction time", m_stats.m_model_construction_time);
     }
 
 }; /* namespace smt */

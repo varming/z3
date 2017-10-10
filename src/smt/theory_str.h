@@ -31,6 +31,7 @@
 #include<map>
 #include "ast/seq_decl_plugin.h"
 #include "util/union_find.h"
+#include "util/stopwatch.h"
 
 namespace smt {
 
@@ -40,6 +41,7 @@ struct theory_str_stats {
     double m_get_eqc_value_time;
     double m_final_check_time;
     double m_handle_equality_time;
+    double m_model_construction_time;
 
     void reset() { memset(this, 0, sizeof(theory_str_stats)); }
     theory_str_stats() { reset(); }
@@ -405,6 +407,12 @@ protected:
     // finite model finding data
     // maps a finite model tester var to a list of variables that will be tested
     obj_map<expr, ptr_vector<expr> > finite_model_test_varlists;
+
+    // statistics collection helpers
+    stopwatch sw_model_construction;
+    bool currently_timing_model_construction;
+    int top_model_construction_scope;
+
 protected:
     void assert_axiom(expr * e);
     void assert_implication(expr * premise, expr * conclusion);
@@ -619,6 +627,10 @@ protected:
 
     expr_ref set_up_finite_model_test(expr * lhs, expr * rhs);
     void finite_model_test(expr * v, expr * c);
+
+    // statistics helpers
+    void start_timing_model_construction();
+    void stop_timing_model_construction();
 
 public:
     theory_str(ast_manager & m, theory_str_params const & params);
