@@ -29,6 +29,7 @@
 #include"smt_kernel.h"
 #include"scoped_ptr_vector.h"
 #include"ast.h"
+#include "ast/rewriter/seq_rewriter.h"
 
 namespace smt {
 

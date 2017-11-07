@@ -23,6 +23,7 @@
 #include "ast/ast_pp.h"
 #include "ast/arith_decl_plugin.h"
 #include "ast/rewriter/th_rewriter.h"
+#include "ast/rewriter/seq_rewriter.h"
 #include "ast/seq_decl_plugin.h"
 #include "smt/smt_theory.h"
 #include "smt/params/theory_str_params.h"
