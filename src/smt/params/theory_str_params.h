@@ -87,6 +87,13 @@ struct theory_str_params {
      */
     bool m_RegexAutomata;
 
+    /*
+     * Infer a lower bound on the length of a non-empty solution from automata
+     * and provide constraints for the integer solver.
+     * No effect if RegexAutomata is turned off.
+     */
+    bool m_regex_AutomataLowerBound;
+
     theory_str_params(params_ref const & p = params_ref()):
         m_StrongArrangements(true),
         m_AggressiveLengthTesting(false),
@@ -99,7 +106,8 @@ struct theory_str_params {
         m_UseBinarySearch(false),
         m_BinarySearchInitialUpperBound(64),
         m_OverlapTheoryAwarePriority(-0.1),
-        m_RegexAutomata(false)
+        m_RegexAutomata(true),
+        m_regex_AutomataLowerBound(true)
     {
         updt_params(p);
     }

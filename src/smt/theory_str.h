@@ -600,6 +600,7 @@ protected:
     void reduce_virtual_regex_in(expr * var, expr * regex, expr_ref_vector & items);
     void check_regex_in(expr * nn1, expr * nn2);
     zstring get_std_regex_str(expr * r);
+    rational find_automaton_lower_bound(eautomaton * aut);
     // helper function for final_check automata path reasoning
     void aut_path_add_next(u_map<expr*>& next, expr_ref_vector& trail, unsigned idx, expr* cond);
     expr_ref aut_path_rewrite_constraint(expr * cond, expr * ch_var);

@@ -30,6 +30,7 @@
 #include"scoped_ptr_vector.h"
 #include"ast.h"
 #include "ast/rewriter/seq_rewriter.h"
+#include"util/hashtable.h"
 
 namespace smt {
 
@@ -7575,6 +7576,61 @@ namespace smt {
                         }
                     }
                 }
+
+                // infer a lower bound on the length of a (non-empty) solution from the automaton
+                // TODO(mtrberzi): do we want to do this for each product automaton as well?
+                if (m_params.m_regex_AutomataLowerBound) {
+                    eautomaton * aut = NULL;
+                    if (is_true) {
+                        // look up regular automaton from cache
+                        if (!regex_automaton_cache.find(regex, aut)) {
+                            TRACE("str", tout << "ERROR: unexpected regex automaton cache miss" << std::endl;);
+                            aut = NULL;
+                        }
+                    } else {
+                        // look up complement automaton from cache
+                        expr_ref rc(u.re.mk_complement(regex), m);
+                        if (regex_automaton_cache.find(rc, aut)) {
+                            TRACE("str", tout << "ERROR: unexpected regex automaton cache miss" << std::endl;);
+                            aut = NULL;
+                        }
+                    }
+                    ENSURE(aut != NULL);
+                    ENSURE(aut->is_epsilon_free());
+
+                    // check whether the empty solution is possible;
+                    // this informs a term in the bounds we learn later on
+                    bool empty_solution_possible = (aut->is_final_state(aut->init()));
+                    // find the shortest path to any final state; this is
+                    // a lower bound on the length of a (non-empty) solution
+                    rational solLen = find_automaton_lower_bound(aut);
+                    if (solLen.is_pos()) {
+                        TRACE("str", tout << "shortest non-empty solution of " << mk_pp(regex, m) << " has length " << solLen;
+                        if (empty_solution_possible) {tout << " and empty solution possible";}else{tout << " and empty solution not possible";} tout << std::endl;);
+
+                        expr_ref lhs(m);
+                        if (is_true) {
+                            lhs = ex;
+                        } else {
+                            lhs = m.mk_not(ex);
+                        }
+
+                        expr_ref rhs(m);
+                        expr_ref r1(m_autil.mk_ge(mk_strlen(str), m_autil.mk_numeral(solLen, true)), m);
+                        if (empty_solution_possible) {
+                            // (S in RE) ==> (len(S) = 0 OR len(S) >= solLen)
+                            expr_ref r2(ctx.mk_eq_atom(mk_strlen(str), m_autil.mk_numeral(rational::zero(), true)), m);
+                            rhs = m.mk_or(r1, r2);
+                        } else {
+                            // (S in RE) ==> len(S) >= solLen
+                            rhs = r1;
+                        }
+                        SASSERT(lhs);
+                        SASSERT(rhs);
+                        assert_implication(lhs, rhs);
+                    }
+                }
+
                 // intersect all automata and check for emptiness
                 if (!automata.empty()) {
                     display_expr1 disp(m);
@@ -7600,7 +7656,6 @@ namespace smt {
                     }
 
                     // if the resulting automaton only accepts the empty string, learn this fact
-                    // TODO: we can perform more general checks here, e.g. finiteness, bounds on length, etc.
                     {
                         unsigned initial_state = aut_inter->init();
                         if (aut_inter->final_states().size() == 1 && aut_inter->is_final_state(initial_state)) {
@@ -8936,6 +8991,68 @@ namespace smt {
             retval = NULL;
             return retval;
         }
+    }
+
+    /*
+     * Find a lower bound on the shortest non-empty solution to a given regular automaton.
+     * This is done by breadth-first search from the initial state
+     * and assumes `aut` is epsilon-free.
+     */
+    rational theory_str::find_automaton_lower_bound(eautomaton * aut) {
+        SASSERT(aut != NULL);
+        SASSERT(aut->is_epsilon_free());
+
+        ast_manager & m = get_manager();
+
+        display_expr1 disp(m);
+        TRACE("str", tout << "find lower bound for automaton:" << std::endl; aut->display(tout, disp););
+
+        if (aut->final_states().size() < 1) {
+            // no solutions
+            return rational::minus_one();
+        }
+
+        // from here we assume that there is a final state reachable from the initial state
+
+        // since we don't care about empty solutions, start with
+        // all states at distance 1 from the initial state
+        unsigned_vector search_queue;
+        eautomaton::moves initial_moves = aut->get_moves_from(aut->init());
+        for (eautomaton::moves::iterator it = initial_moves.begin(); it != initial_moves.end(); ++it) {
+            search_queue.push_back(it->dst());
+        }
+        unsigned search_depth = 1;
+
+        while (!search_queue.empty()) {
+            // check if we have reached a final state
+            for (unsigned_vector::iterator it = search_queue.begin(); it != search_queue.end(); ++it) {
+                unsigned state = *it;
+                if (aut->is_final_state(state)) {
+                    return rational(search_depth);
+                }
+            }
+
+            hashtable<unsigned, unsigned_hash, default_eq<unsigned>> next_states;
+            unsigned_vector next_search_queue;
+            // move one step along all states
+            for (unsigned_vector::iterator it = search_queue.begin(); it != search_queue.end(); ++it) {
+                unsigned src = *it;
+                eautomaton::moves next_moves = aut->get_moves_from(src);
+                for (eautomaton::moves::iterator move_it = next_moves.begin();
+                        move_it != next_moves.end(); ++move_it) {
+                    unsigned dst = move_it->dst();
+                    if (!next_states.contains(dst)) {
+                        next_states.insert(dst);
+                        next_search_queue.push_back(dst);
+                    }
+                }
+                search_queue = next_search_queue;
+                search_depth += 1;
+            }
+        }
+
+        // somehow we failed to find anything -- this should not happen
+        return rational::minus_one();
     }
 
     final_check_status theory_str::final_check_eh() {

@@ -32,4 +32,5 @@ void theory_str_params::updt_params(params_ref const & _p) {
     m_BinarySearchInitialUpperBound = p.str_binary_search_start();
     m_OverlapTheoryAwarePriority = p.str_overlap_priority();
     m_RegexAutomata = p.str_regex_automata();
+    m_regex_AutomataLowerBound = p.str_regex_automata_lower_bound();
 }
