@@ -7557,6 +7557,7 @@ namespace smt {
                                 if (!regex_automaton_cache.find(parent_regex, aut)) {
                                     TRACE("str", tout << "build automaton for " << mk_pp(parent_regex, m) << " (cache miss)" << std::endl;);
                                     aut = m_mk_aut(parent_regex);
+                                    aut->compress();
                                     regex_automaton_cache.insert(parent_regex, aut);
                                 }
                                 SASSERT(aut);
@@ -7568,6 +7569,7 @@ namespace smt {
                                 if (!regex_automaton_cache.find(rc, aut)) {
                                     TRACE("str", tout << "build automaton for " << mk_pp(rc, m) << " (cache miss)" << std::endl;);
                                     aut = m_mk_aut(rc);
+                                    aut->compress();
                                     regex_automaton_cache.insert(rc, aut);
                                 }
                                 SASSERT(aut);
@@ -7596,11 +7598,22 @@ namespace smt {
                         }
                     }
                     ENSURE(aut != NULL);
-                    ENSURE(aut->is_epsilon_free());
 
                     // check whether the empty solution is possible;
                     // this informs a term in the bounds we learn later on
-                    bool empty_solution_possible = (aut->is_final_state(aut->init()));
+                    bool empty_solution_possible = false;
+                    {
+                        // the automaton may accept the empty string if any state
+                        // in the epsilon-closure of the initial state is final
+                        unsigned_vector initial_states;
+                        aut->get_epsilon_closure(aut->init(), initial_states);
+                        for (unsigned_vector::iterator it = initial_states.begin(); it != initial_states.end(); ++it) {
+                            if (aut->is_final_state(*it)) {
+                                empty_solution_possible = true;
+                                break;
+                            }
+                        }
+                    }
                     // find the shortest path to any final state; this is
                     // a lower bound on the length of a (non-empty) solution
                     rational solLen = find_automaton_lower_bound(aut);
@@ -8995,12 +9008,10 @@ namespace smt {
 
     /*
      * Find a lower bound on the shortest non-empty solution to a given regular automaton.
-     * This is done by breadth-first search from the initial state
-     * and assumes `aut` is epsilon-free.
+     * This is done by breadth-first search from the initial state.
      */
     rational theory_str::find_automaton_lower_bound(eautomaton * aut) {
         SASSERT(aut != NULL);
-        SASSERT(aut->is_epsilon_free());
 
         ast_manager & m = get_manager();
 
@@ -9017,13 +9028,19 @@ namespace smt {
         // since we don't care about empty solutions, start with
         // all states at distance 1 from the initial state
         unsigned_vector search_queue;
-        eautomaton::moves initial_moves = aut->get_moves_from(aut->init());
+        eautomaton::moves initial_moves;
+        aut->get_moves_from(aut->init(), initial_moves, true);
         for (eautomaton::moves::iterator it = initial_moves.begin(); it != initial_moves.end(); ++it) {
+            TRACE("str", tout << "initial state: " << it->dst() << std::endl;);
             search_queue.push_back(it->dst());
         }
         unsigned search_depth = 1;
 
+        hashtable<unsigned, unsigned_hash, default_eq<unsigned>> next_states;
+        unsigned_vector next_search_queue;
+
         while (!search_queue.empty()) {
+            TRACE("str", tout << "depth " << search_depth << std::endl;);
             // check if we have reached a final state
             for (unsigned_vector::iterator it = search_queue.begin(); it != search_queue.end(); ++it) {
                 unsigned state = *it;
@@ -9032,23 +9049,27 @@ namespace smt {
                 }
             }
 
-            hashtable<unsigned, unsigned_hash, default_eq<unsigned>> next_states;
-            unsigned_vector next_search_queue;
+            next_states.reset();
+            next_search_queue.clear();
             // move one step along all states
             for (unsigned_vector::iterator it = search_queue.begin(); it != search_queue.end(); ++it) {
                 unsigned src = *it;
-                eautomaton::moves next_moves = aut->get_moves_from(src);
+                TRACE("str", tout << "moves from " << src << ":" << std::endl;);
+                eautomaton::moves next_moves;
+                aut->get_moves_from(src, next_moves, true);
                 for (eautomaton::moves::iterator move_it = next_moves.begin();
                         move_it != next_moves.end(); ++move_it) {
                     unsigned dst = move_it->dst();
+                    TRACE("str", tout << src << " -> " << dst << std::endl;);
                     if (!next_states.contains(dst)) {
                         next_states.insert(dst);
                         next_search_queue.push_back(dst);
                     }
                 }
-                search_queue = next_search_queue;
-                search_depth += 1;
             }
+            search_queue.clear();
+            search_queue.append(next_search_queue);
+            search_depth += 1;
         }
 
         // somehow we failed to find anything -- this should not happen
@@ -9195,6 +9216,7 @@ namespace smt {
                             if (!regex_automaton_cache.find(re_term, aut)) {
                                 TRACE("str", tout << "build automaton for " << mk_pp(re_term, m) << std::endl;);
                                 aut = m_mk_aut(re_term);
+                                aut->compress();
                                 regex_automaton_cache.insert(re_term, aut);
                             }
                             if (first) {
