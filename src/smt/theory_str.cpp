@@ -7536,6 +7536,10 @@ namespace smt {
             expr * str;
             expr * regex;
             if (u.str.is_in_re(ex, str, regex)) {
+                // remember this term for final check, to allow e.g. arithmetic solver propagation
+                regex_deferred_terms.insert(ex);
+                m_trail_stack.push(insert_obj_trail<theory_str, expr>(regex_deferred_terms, ex));
+
                 expr_ref_vector regex_membership_terms(m);
                 ptr_vector<eautomaton> automata;
                 // iterate the parents of str to look for other str.to.re terms
@@ -9031,7 +9035,6 @@ namespace smt {
         eautomaton::moves initial_moves;
         aut->get_moves_from(aut->init(), initial_moves, true);
         for (eautomaton::moves::iterator it = initial_moves.begin(); it != initial_moves.end(); ++it) {
-            TRACE("str", tout << "initial state: " << it->dst() << std::endl;);
             search_queue.push_back(it->dst());
         }
         unsigned search_depth = 1;
@@ -9040,7 +9043,6 @@ namespace smt {
         unsigned_vector next_search_queue;
 
         while (!search_queue.empty()) {
-            TRACE("str", tout << "depth " << search_depth << std::endl;);
             // check if we have reached a final state
             for (unsigned_vector::iterator it = search_queue.begin(); it != search_queue.end(); ++it) {
                 unsigned state = *it;
@@ -9054,13 +9056,11 @@ namespace smt {
             // move one step along all states
             for (unsigned_vector::iterator it = search_queue.begin(); it != search_queue.end(); ++it) {
                 unsigned src = *it;
-                TRACE("str", tout << "moves from " << src << ":" << std::endl;);
                 eautomaton::moves next_moves;
                 aut->get_moves_from(src, next_moves, true);
                 for (eautomaton::moves::iterator move_it = next_moves.begin();
                         move_it != next_moves.end(); ++move_it) {
                     unsigned dst = move_it->dst();
-                    TRACE("str", tout << src << " -> " << dst << std::endl;);
                     if (!next_states.contains(dst)) {
                         next_states.insert(dst);
                         next_search_queue.push_back(dst);
@@ -9076,6 +9076,121 @@ namespace smt {
         return rational::minus_one();
     }
 
+    /*
+     * Refine the lower bound on the length of a solution to a given automaton.
+     * The method returns TRUE if a solution of length `current_lower_bound` exists,
+     * and FALSE otherwise. In addition, the reference parameter `refined_lower_bound`
+     * is assigned the length of the shortest solution longer than `current_lower_bound`
+     * if it exists, or -1 otherwise.
+     */
+    bool theory_str::refine_automaton_lower_bound(eautomaton * aut, rational current_lower_bound, rational & refined_lower_bound) {
+        SASSERT(aut != NULL);
+
+        ast_manager & m = get_manager();
+
+        display_expr1 disp(m);
+        TRACE("str", tout << "refine lower bound of " << current_lower_bound << " for automaton:" << std::endl; aut->display(tout, disp););
+
+        if (aut->final_states().size() < 1) {
+            // no solutions at all
+            refined_lower_bound = rational::minus_one();
+            return false;
+        }
+
+        // from here we assume that there is a final state reachable from the initial state
+
+        unsigned_vector search_queue;
+        // populate search_queue with all states reachable from the epsilon-closure of start state
+        aut->get_epsilon_closure(aut->init(), search_queue);
+
+        unsigned search_depth = 0;
+        hashtable<unsigned, unsigned_hash, default_eq<unsigned>> next_states;
+        unsigned_vector next_search_queue;
+
+        bool found_solution_at_lower_bound = false;
+        
+        while (!search_queue.empty()) {
+            // if we are at the lower bound, check for final states
+            if (search_depth == current_lower_bound.get_unsigned()) {
+                for (unsigned_vector::iterator it = search_queue.begin(); it != search_queue.end(); ++it) {
+                    unsigned state = *it;
+                    if (aut->is_final_state(state)) {
+                        found_solution_at_lower_bound = true;
+                        break;
+                    }
+                }
+                // end phase 1
+                break;
+            }
+            next_states.reset();
+            next_search_queue.clear();
+            // move one step along all states
+            for (unsigned_vector::iterator it = search_queue.begin(); it != search_queue.end(); ++it) {
+                unsigned src = *it;
+                eautomaton::moves next_moves;
+                aut->get_moves_from(src, next_moves, true);
+                for (eautomaton::moves::iterator move_it = next_moves.begin();
+                        move_it != next_moves.end(); ++move_it) {
+                    unsigned dst = move_it->dst();
+                    if (!next_states.contains(dst)) {
+                        next_states.insert(dst);
+                        next_search_queue.push_back(dst);
+                    }
+                }
+            }
+            search_queue.clear();
+            search_queue.append(next_search_queue);
+            search_depth += 1;
+        } // !search_queue.empty()
+
+        // if we got here before reaching the lower bound,
+        // there aren't any solutions at or above it, so stop
+        if (search_depth < current_lower_bound.get_unsigned()) {
+            refined_lower_bound = rational::minus_one();
+            return false;
+        }
+
+        // phase 2: continue exploring the automaton above the lower bound
+        SASSERT(search_depth == current_lower_bound.get_unsigned());
+        
+        while (!search_queue.empty()) {
+            if (search_depth > current_lower_bound.get_unsigned()) {
+                // check if we have found a solution above the lower bound
+                for (unsigned_vector::iterator it = search_queue.begin(); it != search_queue.end(); ++it) {
+                    unsigned state = *it;
+                    if (aut->is_final_state(state)) {
+                        // this is a solution at a depth higher than the lower bound
+                        refined_lower_bound = rational(search_depth);
+                        return found_solution_at_lower_bound;
+                    }
+                }
+            }
+            next_states.reset();
+            next_search_queue.clear();
+            // move one step along all states
+            for (unsigned_vector::iterator it = search_queue.begin(); it != search_queue.end(); ++it) {
+                unsigned src = *it;
+                eautomaton::moves next_moves;
+                aut->get_moves_from(src, next_moves, true);
+                for (eautomaton::moves::iterator move_it = next_moves.begin();
+                        move_it != next_moves.end(); ++move_it) {
+                    unsigned dst = move_it->dst();
+                    if (!next_states.contains(dst)) {
+                        next_states.insert(dst);
+                        next_search_queue.push_back(dst);
+                    }
+                }
+            }
+            search_queue.clear();
+            search_queue.append(next_search_queue);
+            search_depth += 1;
+        }
+        // if we reached this point, we explored the whole automaton and didn't find any
+        // solutions above the lower bound
+        refined_lower_bound = rational::minus_one();
+        return found_solution_at_lower_bound;
+    }
+    
     final_check_status theory_str::final_check_eh() {
         context & ctx = get_context();
         ast_manager & m = get_manager();
@@ -9140,6 +9255,96 @@ namespace smt {
                 return FC_CONTINUE;
             } else {
                 TRACE("str", tout << "Deferred consistency check passed. Continuing in final check." << std::endl;);
+            }
+        }
+
+        // perform deferred checking on regex terms, before we try assigning concrete values
+        if (m_params.m_RegexAutomata) {
+            if (!regex_deferred_terms.empty()) {
+                bool axiom_add = false;
+                for (obj_hashtable<expr>::iterator it = regex_deferred_terms.begin();
+                        it != regex_deferred_terms.end(); ++it) {
+                    expr * regex_term = *it;
+                    lbool regex_term_assignment = ctx.get_assignment(regex_term);
+
+                    TRACE("str", tout << "Deferred regex term " << mk_pp(regex_term, m) << ", assignment " << regex_term_assignment << std::endl;);
+
+                    if (regex_term_assignment == l_undef) {
+                        continue;
+                    }
+
+                    expr * regex_str;
+                    expr * regex_re;
+                    u.str.is_in_re(regex_term, regex_str, regex_re);
+                    if (m_params.m_regex_IntegerLowerBound) {
+                        expr_ref regex_str_len(mk_strlen(regex_str), m);
+                        rational len_lower_bound;
+                        if (lower_bound(regex_str_len, len_lower_bound)) {
+                            TRACE("str", tout << "arithmetic solver has lower bound of " << len_lower_bound << " on " << mk_pp(regex_str, m) << std::endl;);
+                            // If we know a lower bound L from the arithmetic solver, we can now check several things:
+                            // 1. If there are no solutions of length at least L, then we can assert a conflict clause.
+                            // 2. If there are no solutions of length exactly L, we can refine the bound.
+                            // 3. If there is a solution with length greater than L, we can add an additional bound
+                            //    (or refine it, if there aren't solutions of length L)
+                            eautomaton * aut = NULL;
+                            if (regex_term_assignment == l_true) {
+                                if (!regex_automaton_cache.find(regex_re, aut)) {
+                                    // TODO handle cache miss
+                                }
+                            } else if (regex_term_assignment == l_false) {
+                                expr_ref rc(u.re.mk_complement(regex_re), m);
+                                if (!regex_automaton_cache.find(rc, aut)) {
+                                    // TODO handle cache miss
+                                }
+                            }
+                            ENSURE(aut != NULL);
+                            rational refined_lower_bound;
+                            bool solutionAtLowerBound = refine_automaton_lower_bound(aut, len_lower_bound, refined_lower_bound);
+
+                            TRACE("str", tout << "refined lower bound is " << refined_lower_bound << (solutionAtLowerBound? ", solution at current lower bound":", no solution at current lower bound") << std::endl;);
+
+                            expr_ref str_in_re_term(m);
+                            if (regex_term_assignment == l_true) {
+                                str_in_re_term = regex_term;
+                            } else {
+                                str_in_re_term = m.mk_not(regex_term);
+                            }
+                            expr_ref str_lower_bound_term(m_autil.mk_ge(mk_strlen(regex_str), m_autil.mk_numeral(len_lower_bound, true)), m);
+                            
+                            if (!solutionAtLowerBound && refined_lower_bound.is_neg()) {
+                                // case 1: no solutions of length at least L
+                                expr_ref axiom(m.mk_not(m.mk_and(str_in_re_term, str_lower_bound_term)), m);
+                                assert_axiom(axiom);
+                                axiom_add = true;
+                            }
+                            if (!solutionAtLowerBound && refined_lower_bound > len_lower_bound) {
+                                // case 2: refine the current lower bound
+                                expr_ref lhs(m.mk_and(str_in_re_term, str_lower_bound_term), m);
+                                expr_ref rhs(m_autil.mk_ge(mk_strlen(regex_str), m_autil.mk_numeral(refined_lower_bound, true)), m);
+                                assert_implication(lhs, rhs);
+                                axiom_add = true;
+                            }
+                            if (solutionAtLowerBound && refined_lower_bound > len_lower_bound) {
+                                // case 3: add the refined bound as an additional bound,
+                                // only if the difference between the refined bound
+                                // and current bound is greater than 1
+                                if (refined_lower_bound - len_lower_bound > rational::one()) {
+                                    expr_ref lhs(m.mk_and(str_in_re_term, str_lower_bound_term), m);
+                                    expr_ref rhs(m.mk_and(ctx.mk_eq_atom(mk_strlen(regex_str), m_autil.mk_numeral(len_lower_bound, true)),
+                                                          m_autil.mk_ge(mk_strlen(regex_str), m_autil.mk_numeral(refined_lower_bound, true))), m);
+                                    assert_implication(lhs, rhs);
+                                    axiom_add = true;
+                                }
+                            }
+                        } // lower_bound()
+                    } // m_regex_IntegerLowerBound
+                } // foreach (RE in regex_deferred_terms)
+
+                regex_deferred_terms.reset();
+                if (axiom_add) {
+                    TRACE("str", tout << "Regex terms added during deferred checking. Returning to search." << std::endl;);
+                    return FC_CONTINUE;
+                }
             }
         }
 

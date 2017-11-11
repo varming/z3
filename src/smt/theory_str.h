@@ -402,6 +402,8 @@ protected:
 
     // maps a string term to a bounded-length regex assertion
     obj_map<expr, expr*> regex_automata_assertions;
+    // regex membership terms that were assigned since the last time final_check_eh() was called
+    obj_hashtable<expr> regex_deferred_terms;
 protected:
     void assert_axiom(expr * e);
     void assert_implication(expr * premise, expr * conclusion);
@@ -601,6 +603,7 @@ protected:
     void check_regex_in(expr * nn1, expr * nn2);
     zstring get_std_regex_str(expr * r);
     rational find_automaton_lower_bound(eautomaton * aut);
+    bool refine_automaton_lower_bound(eautomaton * aut, rational current_lower_bound, rational & refined_lower_bound);
     // helper function for final_check automata path reasoning
     void aut_path_add_next(u_map<expr*>& next, expr_ref_vector& trail, unsigned idx, expr* cond);
     expr_ref aut_path_rewrite_constraint(expr * cond, expr * ch_var);

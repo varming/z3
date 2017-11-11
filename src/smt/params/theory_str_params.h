@@ -94,6 +94,13 @@ struct theory_str_params {
      */
     bool m_regex_AutomataLowerBound;
 
+    /*
+     * Use lower bound information from the integer solver to refine
+     * automata as part of regex constraints.
+     * No effect if RegexAutomata is turned off.
+     */
+    bool m_regex_IntegerLowerBound;
+
     theory_str_params(params_ref const & p = params_ref()):
         m_StrongArrangements(true),
         m_AggressiveLengthTesting(false),
@@ -107,7 +114,8 @@ struct theory_str_params {
         m_BinarySearchInitialUpperBound(64),
         m_OverlapTheoryAwarePriority(-0.1),
         m_RegexAutomata(true),
-        m_regex_AutomataLowerBound(true)
+        m_regex_AutomataLowerBound(true),
+        m_regex_IntegerLowerBound(true)
     {
         updt_params(p);
     }
