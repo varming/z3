@@ -9330,7 +9330,7 @@ namespace smt {
                                 // and current bound is greater than 1
                                 if (refined_lower_bound - len_lower_bound > rational::one()) {
                                     expr_ref lhs(m.mk_and(str_in_re_term, str_lower_bound_term), m);
-                                    expr_ref rhs(m.mk_and(ctx.mk_eq_atom(mk_strlen(regex_str), m_autil.mk_numeral(len_lower_bound, true)),
+                                    expr_ref rhs(m.mk_or(ctx.mk_eq_atom(mk_strlen(regex_str), m_autil.mk_numeral(len_lower_bound, true)),
                                                           m_autil.mk_ge(mk_strlen(regex_str), m_autil.mk_numeral(refined_lower_bound, true))), m);
                                     assert_implication(lhs, rhs);
                                     axiom_add = true;
