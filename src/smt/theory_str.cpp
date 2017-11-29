@@ -7466,6 +7466,13 @@ namespace smt {
         //TRACE("str", tout << "new diseq: v#" << x << " != v#" << y << std::endl;);
         TRACE("str", tout << "new diseq: " << mk_ismt2_pp(get_enode(x)->get_owner(), get_manager()) << " != " <<
               mk_ismt2_pp(get_enode(y)->get_owner(), get_manager()) << std::endl;);
+
+        //m_trail_stack.push(insert_obj_trail<theory_str, expr>(string_int_axioms, axiom));
+        expr * n1 = get_enode(x)->get_owner();
+        expr * n2 = get_enode(y)->get_owner();
+        std::pair<expr*, expr*> entry(n1, n2);
+        m_disequalities.insert(entry);
+        m_trail_stack.push(insert_obj_pair_trail<theory_str, expr, expr>(m_disequalities, entry));
     }
 
     void theory_str::relevant_eh(app * n) {
@@ -8914,6 +8921,11 @@ namespace smt {
             }
 
             if (unused_internal_variables.empty()) {
+                if (!m_disequalities.empty()) {
+                    TRACE("str", tout << "check consistency wrt. disequalities in current context" << std::endl;);
+                    NOT_IMPLEMENTED_YET();
+                }
+
                 TRACE("str", tout << "All variables are assigned. Done!" << std::endl;);
                 return FC_DONE;
             } else {

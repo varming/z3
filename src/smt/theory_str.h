@@ -20,6 +20,7 @@
 #include "util/trail.h"
 #include "util/union_find.h"
 #include "util/scoped_ptr_vector.h"
+#include "util/obj_pair_hashtable.h"
 #include "ast/ast_pp.h"
 #include "ast/arith_decl_plugin.h"
 #include "ast/rewriter/th_rewriter.h"
@@ -119,6 +120,15 @@ public:
     }
 };
 
+template<typename Ctx, typename T1, typename T2>
+class insert_obj_pair_trail : public trail<Ctx> {
+    obj_pair_hashtable<T1,T2>& m_table;
+    std::pair<T1*,T2*>                m_obj;
+public:
+    insert_obj_pair_trail(obj_pair_hashtable<T1,T2>& t, std::pair<T1*,T2*> o) : m_table(t), m_obj(o) {}
+    virtual ~insert_obj_pair_trail() {}
+    virtual void undo(Ctx & ctx) { m_table.remove(m_obj); }
+};
 
 class nfa {
 protected:
@@ -287,6 +297,8 @@ protected:
     // this prevents infinite recursive descent with respect to axioms that
     // include an occurrence of the term for which axioms are being generated
     obj_hashtable<expr> axiomatized_terms;
+
+    obj_pair_hashtable<expr, expr> m_disequalities;
 
     int tmpStringVarCount;
     int tmpXorVarCount;
