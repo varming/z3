@@ -9640,14 +9640,26 @@ namespace smt {
         //
         bool canHaveNonEmptyAssign = true;
         expr_ref_vector litems(mgr);
-        zstring lcmStr = get_unrolled_string(oneCoreStr, (lcm / oneCoreStr.length()));
+        zstring lcmStr;
+        if (oneCoreStr.length() > 0) {
+            lcmStr = get_unrolled_string(oneCoreStr, (lcm / oneCoreStr.length()));
+        } else {
+            // unrolling a string of length 0
+            lcmStr = zstring("");
+        }
         for (std::set<expr*>::iterator itor = unrolls.begin(); itor != unrolls.end(); itor++) {
             expr * str2RegFunc = to_app(*itor)->get_arg(0);
             expr * coreVal = to_app(str2RegFunc)->get_arg(0);
             zstring coreStr;
             u.str.is_string(coreVal, coreStr);
             unsigned int core1Len = coreStr.length();
-            zstring uStr = get_unrolled_string(coreStr, (lcm / core1Len));
+            zstring uStr;
+            if (core1Len > 0) {
+                uStr = get_unrolled_string(coreStr, (lcm / core1Len));
+            } else {
+                // unrolling a string of length 0
+                uStr = zstring("");
+            }
             if (uStr != lcmStr) {
                 canHaveNonEmptyAssign = false;
             }
