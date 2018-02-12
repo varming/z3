@@ -77,9 +77,11 @@ namespace smt {
     theory_str::~theory_str() {
         m_trail_stack.reset();
         // free regex_automaton_cache
+        ast_manager& m = get_manager();
         {
             obj_map<expr, eautomaton*>::iterator it = regex_automaton_cache.begin();
             for (; it != regex_automaton_cache.end(); ++it) {
+                m.dec_ref(it->m_key);
                 eautomaton * aut = it->m_value;
                 dealloc(aut);
             }
@@ -7562,6 +7564,7 @@ namespace smt {
                                     TRACE("str", tout << "build automaton for " << mk_pp(parent_regex, m) << " (cache miss)" << std::endl;);
                                     aut = m_mk_aut(parent_regex);
                                     aut->compress();
+                                    m.inc_ref(parent_regex);
                                     regex_automaton_cache.insert(parent_regex, aut);
                                 }
                                 SASSERT(aut);
@@ -7574,6 +7577,7 @@ namespace smt {
                                     TRACE("str", tout << "build automaton for " << mk_pp(rc, m) << " (cache miss)" << std::endl;);
                                     aut = m_mk_aut(rc);
                                     aut->compress();
+                                    m.inc_ref(rc);
                                     regex_automaton_cache.insert(rc, aut);
                                 }
                                 SASSERT(aut);
@@ -7596,7 +7600,7 @@ namespace smt {
                     } else {
                         // look up complement automaton from cache
                         expr_ref rc(u.re.mk_complement(regex), m);
-                        if (regex_automaton_cache.find(rc, aut)) {
+                        if (!regex_automaton_cache.find(rc, aut)) {
                             TRACE("str", tout << "ERROR: unexpected regex automaton cache miss" << std::endl;);
                             aut = NULL;
                         }
